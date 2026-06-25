@@ -1,0 +1,748 @@
+# Orchestration, Edge AI & State Machines
+### A Knowledge Base: From LangGraph to Embedded Automotive Systems
+
+---
+
+## Table of Contents
+
+1. [What Is an Orchestrator?](#1-what-is-an-orchestrator)
+2. [LangChain vs LangGraph](#2-langchain-vs-langgraph)
+3. [Why Did They Catch On?](#3-why-did-they-catch-on)
+4. [What LangGraph Offers Beyond Orchestration](#4-what-langgraph-offers-beyond-orchestration)
+5. [Value in Complex Multithreaded Applications](#5-value-in-complex-multithreaded-applications)
+6. [Edge AI + Embedded Systems](#6-edge-ai--embedded-systems)
+7. [Automotive Safety Context](#7-automotive-safety-context)
+8. [Finite State Machines — Deep Dive](#8-finite-state-machines--deep-dive)
+9. [Toward Hierarchical State Machines](#9-toward-hierarchical-state-machines)
+10. [Reading List & Next Steps](#10-reading-list--next-steps)
+
+---
+
+## 1. What Is an Orchestrator?
+
+An orchestrator manages the **flow of execution** between components — LLMs, tools, memory,
+external APIs — and decides what runs next based on current state.
+
+### Core Components
+
+| Component | Role |
+|---|---|
+| **State** | Shared data structure flowing through the system (inputs, outputs, context) |
+| **Nodes** | Individual processing units — LLM calls, tool calls, pure functions |
+| **Edges** | Connections between nodes; static or conditional |
+| **Router** | Decides which node to invoke next based on current state |
+| **Memory** | Short-term (in-state) and long-term (external store: Redis, Postgres) |
+| **Tools** | External actions the agent can take (search, code execution, APIs) |
+| **Entry / Exit** | Where execution starts and terminates |
+
+### Mental Model
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        Orchestrator                         │
+│                                                             │
+│   ┌────────┐    ┌────────┐    ┌────────┐    ┌──────────┐  │
+│   │ Entry  │───▶│ Node A │───▶│ Router │───▶│ Node B   │  │
+│   └────────┘    └────────┘    └───┬────┘    └──────────┘  │
+│                                   │                         │
+│                                   └──────────▶ Node C  ──┐ │
+│                                                            │ │
+│   ┌────────────────────────────────────────────────────┐  │ │
+│   │  State: { messages, tool_results, context, ... }   │◀─┘ │
+│   └────────────────────────────────────────────────────┘    │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 2. LangChain vs LangGraph
+
+```
+LangChain   =  toolbox
+               Abstractions for: LLMs, prompts, chains, tool calling,
+               retrievers, memory. Think of it as plumbing utilities.
+
+LangGraph   =  runtime
+               Built on LangChain primitives. Adds stateful, cyclic,
+               multi-actor graph execution.
+```
+
+### The Critical Difference: Cycles
+
+LangChain chains are **DAGs** — directed acyclic graphs. You cannot loop back.
+
+LangGraph supports **cycles** — a node can route back to a previous node. This is what
+makes real agents possible: retry, reflect, re-plan, iterate.
+
+```
+LangChain (DAG — no loops):
+  A ──▶ B ──▶ C ──▶ D
+
+LangGraph (cyclic graph — agents):
+  A ──▶ B ──▶ C
+        ▲     │
+        └─────┘   ← agent loops until condition met
+```
+
+---
+
+## 3. Why Did They Catch On?
+
+> **The honest answer: timing was as important as the technology.**
+
+LangChain launched **October 2022**. ChatGPT launched **November 2022**.
+Every developer on earth was rushing to build an LLM app. LangChain was already there.
+
+### The Breakdown
+
+```
+~40%  Genuine technical value
+      — non-deterministic routing (LLM decides edges, not you)
+      — context window management
+      — multi-provider abstraction (OpenAI / Anthropic / local, one interface)
+
+~30%  Timing and first-mover advantage
+      — right place, right time during the gold rush
+
+~20%  Community flywheel
+      — tutorials, integrations, GitHub stars → more tutorials
+
+~10%  VC-funded marketing
+      — LangChain raised $60M+
+```
+
+### Why No Similar Library Existed Before for Classical FSMs
+
+This is the sharp question. The primitives — DAGs, state machines, workflow engines — existed for decades. Why no library?
+
+| Reason | Detail |
+|---|---|
+| **Embedded devs are conservative** | Standardization at RTOS/hardware level (FreeRTOS, AUTOSAR), not app orchestration |
+| **Tiny developer population** | Thousands of specialists vs millions of LLM devs hitting the same wall simultaneously |
+| **Enterprise workflow engines exist** | Airflow, Temporal, Camunda — just not hyped |
+| **Classical outputs are deterministic** | No retry/validation/parsing infrastructure needed when components return typed, predictable outputs |
+
+### The One Genuinely New Problem
+
+In classical systems, **you** decide the edges. Transition conditions are deterministic code you wrote.
+
+In LLM systems, **the LLM decides the edges** — based on natural language understanding of
+unstructured output. The graph structure is partially runtime-dynamic. That is genuinely novel
+and requires new infrastructure.
+
+---
+
+## 4. What LangGraph Offers Beyond Orchestration
+
+### 1. Cycles / Loops
+Agents can loop back — retry, reflect, re-plan — without manually managing iteration.
+
+### 2. Persistent State + Checkpointing
+State is saved at every node boundary. You can:
+- Pause and resume a long-running workflow
+- Replay from any prior step ("time-travel debugging")
+- Survive process crashes
+
+### 3. Human-in-the-Loop
+First-class primitive: pause execution mid-graph, wait for human input or approval, resume.
+Not bolted on — built into the execution model.
+
+### 4. Multi-Agent Coordination
+
+```
+Supervisor pattern:
+  ┌──────────────┐
+  │  Supervisor  │
+  └──────┬───────┘
+         │ routes tasks
+    ┌────┴────┬──────────┐
+    ▼         ▼          ▼
+  Agent A   Agent B   Agent C
+ (search)  (code)    (review)
+
+Swarm pattern:
+  Agent A ──handoff──▶ Agent B ──handoff──▶ Agent C
+```
+
+### 5. Streaming
+- **Token streaming** — LLM output word-by-word
+- **Event streaming** — which node is executing, what state looks like, tool calls in progress
+
+### 6. Subgraphs
+Entire graphs embedded as a single node inside another graph. Modular, composable agent components.
+
+### 7. LangGraph Platform
+- Deploy graph as REST API
+- LangGraph Studio — visual debugger with graph visualization and state inspector
+- Built-in job queues, cron scheduling, horizontal scaling
+
+---
+
+## 5. Value in Complex Multithreaded Applications
+
+In a system receiving numerous concurrent external events, the graph abstraction earns its keep
+by making **behavioral complexity explicit**.
+
+### Without a Graph Engine
+
+```
+State scattered across callbacks, mutexes, boolean flags.
+Implicit transitions buried in if/else chains.
+No single place to observe "what is the system doing right now."
+```
+
+### With a Graph Engine
+
+```
+Every state is named and visible.
+Every transition is an explicit edge with a guard condition.
+Instrumentation at node boundaries is natural.
+Backpressure and ordering become graph-topology problems, not threading problems.
+```
+
+> **Key insight:** The graph is not about performance — it is about reasoning.
+> In high-throughput event streams (packets, sensor data at kHz), you don't use a graph per event.
+> You use it for behavioral orchestration — what the system *decides to do* across event sequences.
+> Those two layers must be separate.
+
+---
+
+## 6. Edge AI + Embedded Systems
+
+### The New Reality
+
+Specialized small LLMs are moving to edge devices:
+- Phi-3 Mini, Gemma 2B, Llama 3.2 1B
+- On-device vision models, audio classifiers, anomaly detectors
+- Embedded devices with NPUs (Neural Processing Units)
+
+These produce **probabilistic outputs** that must be managed by **deterministic code**.
+
+### The Core Architectural Pattern
+
+```
+┌──────────────────────────────────────────────────────────┐
+│              Deterministic Orchestrator                  │
+│                                                          │
+│  ┌──────────┐   ┌──────────┐   ┌─────────────────────┐ │
+│  │  Event   │──▶│  Route   │──▶│  Validate &         │ │
+│  │  Queue   │   │          │   │  Constrain Output   │ │
+│  └──────────┘   └────┬─────┘   └──────────┬──────────┘ │
+│                       │                    │             │
+│               ┌───────▼──────┐             │             │
+│               │ LLM Inference │             │             │
+│               │ budget: 50ms  │             │             │
+│               │ conf > 0.85   │             ▼             │
+│               └───────────────┘    ┌──────────────────┐  │
+│                        │           │  Fallback Node   │  │
+│                        │           │  (rule-based if  │  │
+│                        └──────────▶│   LLM fails)     │  │
+│                                    └──────────────────┘  │
+└──────────────────────────────────────────────────────────┘
+```
+
+### New Primitives Needed (Beyond LangGraph)
+
+| Primitive | Description |
+|---|---|
+| **Confidence-gated transitions** | Guard condition is a probability threshold, not a boolean |
+| **Hard timeout nodes** | Every LLM node has a deterministic deadline; fallback fires automatically |
+| **Output constraint validation** | LLM output checked against physical/safety invariants before transition |
+| **Degraded mode subgraphs** | Capability layers: full AI → rule-based → minimal safe state |
+| **Budget-aware scheduling** | Orchestrator knows inference cost (time, energy, thermal) |
+| **Multi-model routing** | Route to vision / audio / reasoning model based on event type |
+
+### Confidence-Gated Transition Example
+
+```
+LLM output: "this is class X" with confidence 0.87
+
+Guard logic:
+  confidence > 0.90  →  act on LLM decision
+  0.60 – 0.90        →  request second opinion or escalate
+  confidence < 0.60  →  fallback to rule-based behavior
+```
+
+### Degraded Mode Graph
+
+```
+Full graph          (LLM available, battery > 30%, thermal OK)
+     │
+     ▼  [battery low OR thermal throttle]
+Simplified graph    (rule-based heuristics only)
+     │
+     ▼  [critical fault]
+Minimal safe state  (halt, alert, wait for recovery)
+```
+
+---
+
+## 7. Automotive Safety Context
+
+### The Standards Stack
+
+```
+ISO 26262    Functional safety for road vehicles
+             Defines ASIL A → D (D = most safety-critical)
+             Covers hardware and software faults
+
+ISO 21448    Safety of the Intended Functionality (SOTIF)
+(SOTIF)      Addresses AI/ML sensor uncertainty and non-determinism
+             Extension to ISO 26262 for autonomous systems
+
+MISRA C++    Coding guidelines for safety-critical C++
+:2023        Defines which language features are allowed at each ASIL level
+
+AUTOSAR      Software architecture standard for automotive ECUs
+Adaptive     High-compute platform (POSIX, C++17) for AI-capable ECUs
+Platform     Manages execution, communication, update, diagnostics
+```
+
+### ASIL Decomposition — The Key Pattern for AI
+
+When you have an AI component (non-deterministic), you decompose the safety requirement:
+
+```
+┌────────────────────────────────────────────────────────┐
+│  Safety Requirement: ASIL-D                            │
+│                                                        │
+│  ┌──────────────────┐    ┌─────────────────────────┐  │
+│  │  AI Component    │    │  Safety Monitor         │  │
+│  │  (ASIL-B)        │    │  (ASIL-C, deterministic)│  │
+│  │                  │    │                         │  │
+│  │  Handles nominal │    │  Validates AI output    │  │
+│  │  case with high  │    │  Enforces hard safety   │  │
+│  │  performance     │    │  invariants. Can veto.  │  │
+│  └──────────────────┘    └─────────────────────────┘  │
+│                                                        │
+│  Combined: ASIL-B × ASIL-C = ASIL-D equivalent        │
+└────────────────────────────────────────────────────────┘
+```
+
+The safety monitor is what you can formally verify. The AI handles the nominal case.
+This maps exactly to the "deterministic shell around non-deterministic core" pattern.
+
+### AUTOSAR Adaptive Platform
+
+Designed for high-compute ECUs that run AI (camera processing, sensor fusion, path planning).
+Key concepts relevant here:
+
+- **Execution Management** — starts/stops applications, manages dependencies
+- **Communication Management** — service-oriented communication between components (SOME/IP)
+- **State Management** — coordinates system-wide modes (normal, degraded, shutdown)
+- **Update and Configuration Management** — OTA updates for AI models
+
+The State Management component in AUTOSAR is essentially a formal HSM at the system level.
+
+### Key Papers
+
+| Paper | What It Covers |
+|---|---|
+| arXiv:2103.10529 | ML in certified systems — how non-determinism meets ISO 26262 / DO-178C |
+| arXiv:2003.01155 | Probability-based safety verification for ML components |
+| arXiv:2606.07437 | Re-imagining ISO 26262 for autonomous vehicles (2026) |
+
+---
+
+## 8. Finite State Machines — Deep Dive
+
+### Formal Definition
+
+An FSM is a **5-tuple: (S, Σ, δ, s₀, F)**
+
+```
+S   = finite set of states
+Σ   = finite set of events (input alphabet)
+δ   = transition function:  S × Σ → S
+s₀  = initial state
+F   = set of accepting states (less relevant in reactive embedded)
+```
+
+For reactive embedded systems, this extends to an **Extended FSM (EFSM)**:
+
+```
+δ = S × Σ × G → S × A
+
+G = guard conditions (predicates on extended state / variables)
+A = actions (side effects on transition, entry, or exit)
+```
+
+### Moore vs Mealy
+
+| | Output depends on | Typical use |
+|---|---|---|
+| **Moore** | State only | Protocol parsers, traffic lights |
+| **Mealy** | State + Event | Most embedded control systems |
+
+In practice, embedded FSMs are Mealy-style — the action depends on both *where you are* and
+*what event arrived*. Mixing Moore and Mealy actions in the same machine without being
+intentional is a common source of bugs.
+
+### Run-to-Completion (RTC) Semantics
+
+> **One event is processed completely before the next event begins.**
+
+```
+┌─────────────┐     ┌──────────────────────────────────────────┐
+│ Event Queue │────▶│ FSM processes event atomically            │
+│ [e1, e2, e3]│     │ No preemption. No re-entrancy.            │
+└─────────────┘     │ New events during processing → queue only │
+                    └──────────────────────────────────────────┘
+```
+
+**Why this matters:** Without RTC you need a mutex around every state transition.
+With RTC, the FSM is the sole actor touching its own state. This is Samek's key
+architectural insight, and it maps directly to LangGraph's node execution model.
+
+---
+
+### Implementation Patterns
+
+#### Pattern 1: Switch-Case (What Everyone Starts With)
+
+```cpp
+enum State { IDLE, CONNECTING, CONNECTED, ERROR };
+enum Event { EVT_CONNECT, EVT_ACK, EVT_TIMEOUT, EVT_RESET };
+
+State current = IDLE;
+
+void process(Event e) {
+    switch (current) {
+        case IDLE:
+            if (e == EVT_CONNECT) {
+                start_timer();        // ← entry action embedded in transition
+                current = CONNECTING;
+            }
+            break;
+        case CONNECTING:
+            if (e == EVT_ACK)     { stop_timer(); current = CONNECTED; }
+            if (e == EVT_TIMEOUT) { log_error();  current = ERROR;     }
+            break;
+        case CONNECTED:
+            if (e == EVT_RESET)   { close_socket(); current = IDLE; }
+            break;
+    }
+}
+```
+
+**Problems at scale:**
+- O(S × E) code — every state × every event combination
+- Entry actions duplicated on every transition entering a state
+- No way to read the machine structure without reading all code
+- Adding a state means touching every other case
+
+---
+
+#### Pattern 2: Transition Table
+
+Separate the *structure* (what transitions exist) from the *behavior* (what they do):
+
+```cpp
+struct Transition {
+    State     from;
+    Event     event;
+    bool    (*guard)(void);    // nullptr = unconditional
+    void    (*action)(void);   // transition action
+    State     to;
+};
+
+static const Transition TABLE[] = {
+//  from          event          guard     action       to
+  { IDLE,         EVT_CONNECT,   nullptr,  start_timer, CONNECTING },
+  { CONNECTING,   EVT_ACK,       nullptr,  stop_timer,  CONNECTED  },
+  { CONNECTING,   EVT_TIMEOUT,   nullptr,  log_error,   ERROR      },
+  { ERROR,        EVT_RESET,     nullptr,  nullptr,     IDLE       },
+};
+
+void process(Event e) {
+    for (const auto& t : TABLE) {
+        if (t.from == current && t.event == e) {
+            if (!t.guard || t.guard()) {
+                if (t.action) t.action();
+                current = t.to;
+                return;
+            }
+        }
+    }
+}
+```
+
+**Better:** the table is the documentation. The whole machine is readable in one glance.
+
+**Still broken:** entry/exit actions are not first-class. Three transitions entering
+`CONNECTING` → `start_timer()` in three places.
+
+---
+
+#### Pattern 3: Entry / Exit Actions — The Right Abstraction
+
+Entry and exit actions are **not** transition actions. They are **state invariants**:
+
+```
+Entry action  → runs every time this state is entered, regardless of which transition
+Exit action   → runs every time this state is exited, regardless of which transition
+Transition action → runs only on one specific transition (use sparingly)
+```
+
+```cpp
+struct StateDescriptor {
+    void (*on_entry)(void);
+    void (*on_exit)(void);
+};
+
+static const StateDescriptor STATES[] = {
+    /* IDLE       */ { nullptr,       nullptr      },
+    /* CONNECTING */ { start_timer,   stop_timer   },  // ← timer owned here, once
+    /* CONNECTED  */ { open_socket,   close_socket },
+    /* ERROR      */ { log_error,     nullptr      },
+};
+
+void transition_to(State next) {
+    if (STATES[current].on_exit)  STATES[current].on_exit();
+    current = next;
+    if (STATES[current].on_entry) STATES[current].on_entry();
+}
+```
+
+Now `start_timer` / `stop_timer` live in exactly one place. Any transition into
+`CONNECTING` starts the timer. Any transition out stops it. It is impossible to forget.
+
+> **This is the single most impactful improvement you can make to a naive FSM.**
+
+---
+
+#### Pattern 4: Internal Transitions
+
+Not all events cause a state change. An **internal transition** handles an event
+*without leaving the state* — no exit/entry fires.
+
+```cpp
+// CONNECTED receives EVT_HEARTBEAT
+// We handle it (reset watchdog) but do NOT exit/re-enter CONNECTED
+// (which would close and reopen the socket — wrong)
+
+case CONNECTED:
+    if (e == EVT_HEARTBEAT) {
+        reset_watchdog();   // handle it
+        return;             // no transition_to() — stay, no exit/entry
+    }
+```
+
+Internal transitions are frequently overlooked but critical for events that a state
+handles without a behavioral change.
+
+---
+
+### Event Types
+
+| Type | Example | Mechanism |
+|---|---|---|
+| **External** | Button press, network packet, timer ISR | Posted to event queue |
+| **Internal** | FSM posts to itself (e.g., completion signal) | Same queue, RTC preserved |
+| **Deferred** | Arrives when current state can't handle it | Held, replayed on state change |
+
+**Deferred events** are a critical pattern that flat FSMs lack. Example: a firmware
+update event arrives while a motor is in a safety-critical maneuver. You cannot handle
+it now. You defer it. When the maneuver completes, the defer queue replays it.
+Without deferral, you either drop the event or build ad-hoc buffers everywhere.
+
+---
+
+### The State Explosion Problem
+
+This is where flat FSMs fundamentally break. Consider a device with three orthogonal dimensions:
+
+```
+Connection:  { OFFLINE, ONLINE }           → 2 values
+Operation:   { IDLE, ACTIVE, PAUSED }      → 3 values
+Error:       { OK, DEGRADED }              → 2 values
+
+Flat FSM requires: 2 × 3 × 2 = 12 states
+```
+
+A `RESET` event that should send *anything* to `OFFLINE_IDLE_OK` now needs **11 transitions** —
+one from every other state.
+
+Add one more orthogonal variable with 3 values: **36 states, 35 RESET transitions.**
+
+The machine is technically correct but unmaintainable. This is state explosion.
+
+```
+FSM growth:
+  3 features × 2 states each  →   8 states,   ~24 transitions
+  5 features × 3 states each  →  243 states, ~1200 transitions  ← unmaintainable
+  8 features × 2 states each  →  256 states, ~2000 transitions  ← impossible
+```
+
+---
+
+## 9. Toward Hierarchical State Machines
+
+### What HSMs Solve
+
+Harel's 1987 insight: the explosion happens because flat FSMs cannot express that
+some states *share behavior*. HSMs add three mechanisms:
+
+```
+1. Hierarchy     — states nest inside other states
+                   parent state handles events the child does not
+
+2. Orthogonal    — parallel regions within a state
+   regions         true concurrent sub-machines, no combinatorial explosion
+
+3. History       — remember which substate was active when you left
+   pseudostates    re-enter where you left off (shallow or deep history)
+```
+
+### Hierarchy in Practice
+
+```
+Without hierarchy (flat — 6 states for connection × error):
+
+  OFFLINE_OK ──────▶ ONLINE_OK
+  OFFLINE_OK ──────▶ OFFLINE_DEGRADED
+  OFFLINE_DEGRADED ▶ ONLINE_DEGRADED
+  ... (all combinations)
+
+With hierarchy:
+
+  ┌─── OFFLINE ────────────────────────┐
+  │  ┌────────┐      ┌───────────────┐ │
+  │  │   OK   │      │   DEGRADED    │ │
+  │  └────────┘      └───────────────┘ │
+  └────────────────────────────────────┘
+           │ CONNECT event
+  ┌─── ONLINE ─────────────────────────┐
+  │  ┌────────┐      ┌───────────────┐ │
+  │  │   OK   │      │   DEGRADED    │ │
+  │  └────────┘      └───────────────┘ │
+  └────────────────────────────────────┘
+
+  RESET event handled once at the top level → transitions to OFFLINE/OK
+  No duplication. 4 states instead of 6. Scales linearly, not exponentially.
+```
+
+### Orthogonal Regions (True Concurrency)
+
+```
+┌─── OPERATING ──────────────────────────────────────────┐
+│                                                        │
+│  ┌── Region A: Motor ───┐   ┌── Region B: Thermal ──┐ │
+│  │  STOPPED             │   │  NORMAL               │ │
+│  │  RUNNING             │   │  WARNING              │ │
+│  │  BRAKING             │   │  CRITICAL             │ │
+│  └──────────────────────┘   └───────────────────────┘ │
+│                                                        │
+└────────────────────────────────────────────────────────┘
+```
+
+Motor states and thermal states evolve independently within `OPERATING`.
+No combinatorial explosion. Each region manages its own transitions.
+Both regions share the `OPERATING` entry/exit actions.
+
+### History Pseudostates
+
+```
+User presses MENU (leaves OPERATING):
+  → system remembers Motor was in RUNNING, Thermal was in WARNING
+
+User returns to OPERATING:
+  → shallow history: re-enters default substate (STOPPED, NORMAL)
+  → deep history:    re-enters exactly where it left off (RUNNING, WARNING)
+```
+
+Deep history is critical for resumable operations in embedded — e.g., a device
+interrupted by a calibration sequence that needs to return to exactly what it was doing.
+
+### The Event Handling Contract in HSMs
+
+Event processing follows a strict priority order:
+
+```
+1. Try innermost active state first
+2. If not handled, propagate to parent state
+3. Continue up the hierarchy until handled or discarded
+
+Example:
+  Active state: OPERATING / Motor:RUNNING / Thermal:WARNING
+
+  EVT_EMERGENCY fires:
+    → RUNNING does not handle it
+    → Motor region does not handle it
+    → OPERATING handles it → transition to SAFE_HALT
+
+  EVT_SPEED_ADJUST fires:
+    → RUNNING handles it (adjust PWM)
+    → stops here, does not propagate
+```
+
+This propagation is what makes HSMs composable: child states specialize behavior,
+parent states handle shared behavior. No code duplication.
+
+---
+
+### Mapping LangGraph Concepts to HSMs
+
+| LangGraph | HSM Equivalent |
+|---|---|
+| Node | State with entry/exit actions |
+| Conditional edge | Guard condition on transition |
+| Subgraph | Nested submachine (child HSM) |
+| Checkpointing | History pseudostate + NVRAM persistence |
+| Human-in-the-loop | Deferred event queue + escalation state |
+| Multi-agent | Orthogonal regions (concurrent sub-machines) |
+| Streaming | Event publication during state transitions |
+
+---
+
+## 10. Reading List & Next Steps
+
+### Foundational — Read First
+
+| Resource | What You Get | Link |
+|---|---|---|
+| Harel 1987 "Statecharts" | The original paper. Hierarchy, concurrency, history — all defined here. | [Free PDF](https://dubroy.com/refs/Statecharts_a_visual_formalism_for_complex_systems.pdf) |
+| Samek "Practical UML Statecharts in C/C++, 2nd Ed." | Maps theory to embedded C/C++. Includes QP framework. | [state-machine.com/psicc2](https://www.state-machine.com/psicc2) |
+
+### Automotive Safety
+
+| Resource | What You Get |
+|---|---|
+| ISO 26262 | Functional safety standard — ASIL levels, HARA process |
+| ISO 21448 (SOTIF) | The standard for AI/sensor non-determinism in vehicles |
+| arXiv:2103.10529 | ML in certified systems — directly addresses ISO 26262 + AI |
+| arXiv:2606.07437 | Re-imagining ISO 26262 for autonomous vehicles (2026) |
+| [AUTOSAR Adaptive Spec](https://www.autosar.org/fileadmin/standards/R22-11/AP/AUTOSAR_EXP_SWArchitecture.pdf) | Software architecture for high-compute automotive ECUs |
+
+### C++20 Implementation
+
+| Resource | What You Get | Link |
+|---|---|---|
+| Boost::ext::SML | C++14 header-only state machine DSL, zero overhead | [github.com/boost-ext/sml](https://github.com/boost-ext/sml) |
+| SML2 | C++20 rewrite — uses concepts and modules | [github.com/boost-ext/sml2](https://github.com/boost-ext/sml2) |
+| C++20 Coroutines | Compiler-generated state machines via co_await | [Stanford guide](https://www.scs.stanford.edu/~dm/blog/c++-coroutines.html) |
+| CppNow 2019 "Rise of the State Machines" | Side-by-side benchmark of all approaches | YouTube |
+
+### Formal Methods
+
+| Resource | What You Get | Link |
+|---|---|---|
+| TLA+ "Specifying Systems" | Formal specification for distributed/concurrent systems | [lamport.azurewebsites.net](https://lamport.azurewebsites.net/tla/book.html) |
+| UPPAAL | Model checker for real-time systems — used in automotive research | [uppaal.org](https://uppaal.org) |
+
+### Suggested Reading Order
+
+```
+Week 1–2   Harel 1987 paper  →  Samek Book Part I (Chapters 1–4)
+Week 3–4   Samek Book Part II (QP Framework)  →  SML2 documentation
+Week 5–6   arXiv:2103.10529 (ML in certified systems)  →  SOTIF survey
+Week 7+    AUTOSAR Adaptive Platform spec  →  ISO 26262 overview (Parts 1, 4, 6)
+```
+
+---
+
+## The One-Line Summary
+
+> Embedded systems will need what avionics already have — formal behavioral specifications —
+> but now those specifications must safely contain probabilistic inference engines.
+> The orchestrator is the contract between the deterministic world and the stochastic one.
