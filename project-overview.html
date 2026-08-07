@@ -1,0 +1,1213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <title>embeddedGraph — Embedded AI Orchestrator</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    :root {
+      --bg: #0D1117;
+      --surface: #161B22;
+      --surface2: #1C2128;
+      --surface3: #21262D;
+      --border: #30363D;
+      --border-bright: #484F58;
+      --text: #E6EDF3;
+      --text-muted: #8B949E;
+      --text-dim: #6E7681;
+      --amber: #E6A020;
+      --amber-bg: #2D1F00;
+      --amber-border: #533D0A;
+      --green: #3FB950;
+      --green-bg: #0B2A17;
+      --green-border: #0F5323;
+      --red: #F85149;
+      --red-bg: #3D1214;
+      --blue: #58A6FF;
+      --blue-bg: #051D4D;
+      --blue-border: #0D419D;
+      --purple: #BC8CFF;
+      --purple-bg: #1D1140;
+      --purple-border: #553093;
+      --cyan: #39C5CF;
+      --cyan-bg: #042C31;
+      --code-bg: #161B22;
+      --shadow: 0 1px 3px rgba(0,0,0,0.4), 0 0 0 1px var(--border);
+      --mono: ui-monospace, SFMono-Regular, 'Cascadia Code', Menlo, Consolas, monospace;
+      --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      --radius: 8px;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { font-size: 15px; scroll-behavior: smooth; }
+    body {
+      font-family: var(--sans);
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.65;
+      min-height: 100vh;
+    }
+    a { color: var(--blue); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    .page { max-width: 1120px; margin: 0 auto; padding: 0 24px 80px; }
+
+    /* ── Nav ──────────────────────────────────────────────────────────────── */
+    .topnav {
+      position: sticky; top: 0; z-index: 100;
+      background: rgba(13,17,23,0.85);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      padding: 0 24px;
+    }
+    .topnav-inner {
+      max-width: 1120px; margin: 0 auto;
+      display: flex; align-items: center; gap: 24px;
+      height: 52px; overflow-x: auto;
+    }
+    .topnav-brand {
+      font-family: var(--mono); font-size: 0.85rem; font-weight: 700;
+      color: var(--text); white-space: nowrap; flex-shrink: 0;
+    }
+    .topnav-brand span { color: var(--amber); }
+    .topnav-links { display: flex; gap: 4px; flex-shrink: 0; }
+    .topnav-links a {
+      font-family: var(--mono); font-size: 0.75rem; font-weight: 500;
+      color: var(--text-muted); padding: 4px 10px; border-radius: 6px;
+      transition: color 0.15s, background 0.15s;
+    }
+    .topnav-links a:hover { color: var(--text); background: var(--surface2); text-decoration: none; }
+
+    /* ── Hero ─────────────────────────────────────────────────────────────── */
+    .hero {
+      padding: 56px 0 48px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 48px;
+    }
+    .hero-badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-family: var(--mono); font-size: 0.72rem; font-weight: 600;
+      letter-spacing: 0.08em; text-transform: uppercase;
+      color: var(--amber); background: var(--amber-bg);
+      border: 1px solid var(--amber-border); border-radius: 20px;
+      padding: 4px 14px; margin-bottom: 16px;
+    }
+    .hero-badge .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--amber); }
+    .hero h1 {
+      font-family: var(--mono); font-size: 2.2rem; font-weight: 800;
+      color: var(--text); letter-spacing: -0.02em; line-height: 1.2;
+      margin-bottom: 12px;
+    }
+    .hero h1 span { color: var(--amber); }
+    .hero-sub {
+      font-size: 1.05rem; color: var(--text-muted); max-width: 640px;
+      line-height: 1.6; margin-bottom: 28px;
+    }
+    .hero-stats {
+      display: flex; gap: 24px; flex-wrap: wrap;
+    }
+    .hero-stat {
+      display: flex; align-items: center; gap: 8px;
+      font-family: var(--mono); font-size: 0.8rem; color: var(--text-muted);
+    }
+    .hero-stat .val { color: var(--text); font-weight: 700; }
+    .hero-stat .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .dot-green { background: var(--green); }
+    .dot-amber { background: var(--amber); }
+    .dot-blue  { background: var(--blue); }
+    .dot-purple{ background: var(--purple); }
+    .dot-red   { background: var(--red); }
+    .dot-cyan  { background: var(--cyan); }
+
+    /* ── Section ──────────────────────────────────────────────────────────── */
+    .section { margin-bottom: 56px; }
+    .section-label {
+      font-family: var(--mono); font-size: 0.7rem; font-weight: 700;
+      letter-spacing: 0.1em; text-transform: uppercase;
+      color: var(--amber); margin-bottom: 6px;
+    }
+    .section-title {
+      font-family: var(--mono); font-size: 1.2rem; font-weight: 700;
+      color: var(--text); margin-bottom: 4px;
+    }
+    .section-sub {
+      font-size: 0.9rem; color: var(--text-muted); margin-bottom: 24px;
+      max-width: 700px;
+    }
+
+    /* ── Vision cards ─────────────────────────────────────────────────────── */
+    .vision-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+    @media (max-width: 768px) { .vision-grid { grid-template-columns: 1fr; } }
+    .vision-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 24px;
+      position: relative; overflow: hidden;
+    }
+    .vision-card::before {
+      content: ''; position: absolute; top: 0; left: 0; right: 0;
+      height: 3px;
+    }
+    .vision-card.v-cpp::before    { background: var(--blue); }
+    .vision-card.v-rust::before   { background: var(--amber); }
+    .vision-card.v-embed::before  { background: var(--green); }
+    .vision-name {
+      font-family: var(--mono); font-size: 0.9rem; font-weight: 700;
+      margin-bottom: 8px;
+    }
+    .v-cpp .vision-name   { color: var(--blue); }
+    .v-rust .vision-name  { color: var(--amber); }
+    .v-embed .vision-name { color: var(--green); }
+    .vision-desc { font-size: 0.85rem; color: var(--text-muted); line-height: 1.6; }
+
+    /* ── Architecture diagram ─────────────────────────────────────────────── */
+    .arch-wrap {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 32px 24px; overflow-x: auto;
+    }
+    .arch-diagram { display: flex; flex-direction: column; align-items: center; gap: 0; min-width: 700px; }
+    .arch-row { display: flex; width: 100%; gap: 0; }
+    .arch-box {
+      flex: 1; border: 1px solid var(--border); padding: 14px 16px;
+      font-family: var(--mono); position: relative;
+    }
+    .arch-box-name { font-size: 0.85rem; font-weight: 700; color: var(--text); }
+    .arch-box-sub { font-size: 0.72rem; color: var(--text-muted); margin-top: 3px; line-height: 1.4; }
+    .arch-app {
+      background: var(--surface2); border-radius: var(--radius) var(--radius) 0 0;
+      text-align: center; border-bottom: none;
+    }
+    .arch-app .arch-box-name { color: var(--text-muted); font-size: 0.78rem; letter-spacing: 0.06em; text-transform: uppercase; }
+    .arch-middle { border-top: none; border-bottom: none; }
+    .arch-hsm     { border-color: var(--purple); border-right: none; border-radius: 0; }
+    .arch-graph   { border-color: var(--amber);  background: var(--amber-bg); }
+    .arch-infer   { border-color: var(--green);  border-left: none; border-radius: 0; }
+    .arch-hsm   .arch-box-name { color: var(--purple); }
+    .arch-graph .arch-box-name { color: var(--amber); }
+    .arch-infer .arch-box-name { color: var(--green); }
+    .arch-embedded {
+      background: var(--surface2); border-top: none;
+      border-radius: 0 0 var(--radius) var(--radius); text-align: center;
+    }
+    .arch-embedded .arch-box-name { font-size: 0.78rem; letter-spacing: 0.04em; }
+    .arch-arrows {
+      display: flex; width: 100%; justify-content: space-around;
+      padding: 0 80px; font-family: var(--mono); font-size: 0.9rem;
+      color: var(--text-dim); height: 20px; align-items: center;
+    }
+
+    /* ── Two-layer diagram ────────────────────────────────────────────────── */
+    .two-layer {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
+    }
+    @media (max-width: 640px) { .two-layer { grid-template-columns: 1fr; } }
+    .layer-box {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 20px; position: relative; overflow: hidden;
+    }
+    .layer-box::before {
+      content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+    }
+    .layer-box.l-hsm::before  { background: var(--purple); }
+    .layer-box.l-graph::before { background: var(--amber); }
+    .layer-label {
+      font-family: var(--mono); font-size: 0.7rem; font-weight: 700;
+      letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 8px;
+    }
+    .l-hsm .layer-label  { color: var(--purple); }
+    .l-graph .layer-label { color: var(--amber); }
+    .layer-title {
+      font-family: var(--mono); font-size: 0.95rem; font-weight: 700;
+      color: var(--text); margin-bottom: 8px;
+    }
+    .layer-desc { font-size: 0.85rem; color: var(--text-muted); line-height: 1.6; margin-bottom: 12px; }
+    .layer-props { display: flex; flex-direction: column; gap: 4px; }
+    .layer-prop {
+      font-family: var(--mono); font-size: 0.75rem; color: var(--text-muted);
+      background: var(--code-bg); border: 1px solid var(--border);
+      border-radius: 4px; padding: 4px 10px;
+    }
+    .layer-prop b { color: var(--text); }
+
+    /* ── Feature table ────────────────────────────────────────────────────── */
+    .tbl-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; font-family: var(--mono); }
+    th {
+      text-align: left; padding: 10px 14px; border-bottom: 2px solid var(--border);
+      color: var(--text-muted); font-size: 0.72rem; letter-spacing: 0.06em;
+      text-transform: uppercase; font-weight: 600;
+    }
+    td { padding: 10px 14px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: var(--surface2); }
+    .td-feat { color: var(--text); font-weight: 600; }
+    .td-note { color: var(--text-muted); font-family: var(--sans); font-size: 0.8rem; }
+    .badge {
+      display: inline-block; font-size: 0.65rem; font-weight: 700;
+      padding: 2px 6px; border-radius: 3px; text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .badge-done  { background: var(--green-bg);  color: var(--green); border: 1px solid var(--green-border); }
+    .badge-plan  { background: var(--amber-bg);  color: var(--amber); border: 1px solid var(--amber-border); }
+    .badge-cpp   { background: var(--blue-bg);   color: var(--blue);  border: 1px solid var(--blue-border); }
+    .badge-rust  { background: var(--amber-bg);  color: var(--amber); border: 1px solid var(--amber-border); }
+
+    /* ── Concept cards ────────────────────────────────────────────────────── */
+    .concepts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+    @media (max-width: 768px) { .concepts { grid-template-columns: 1fr; } }
+    .concept-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 20px; position: relative; overflow: hidden;
+    }
+    .concept-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; }
+    .concept-card.c-graph::before  { background: var(--amber); }
+    .concept-card.c-hsm::before    { background: var(--purple); }
+    .concept-card.c-infer::before  { background: var(--green); }
+    .concept-card.c-embed::before  { background: var(--cyan); }
+    .concept-card.c-safety::before { background: var(--red); }
+    .concept-card.c-rust::before   { background: var(--amber); }
+    .concept-name { font-family: var(--mono); font-size: 0.85rem; font-weight: 700; margin-bottom: 6px; }
+    .c-graph .concept-name  { color: var(--amber); }
+    .c-hsm .concept-name    { color: var(--purple); }
+    .c-infer .concept-name  { color: var(--green); }
+    .c-embed .concept-name  { color: var(--cyan); }
+    .c-safety .concept-name { color: var(--red); }
+    .c-rust .concept-name   { color: var(--amber); }
+    .concept-desc { font-size: 0.8125rem; color: var(--text-muted); margin-bottom: 14px; line-height: 1.55; }
+    .concept-api { display: flex; flex-direction: column; gap: 4px; }
+    .api-line {
+      font-family: var(--mono); font-size: 0.72rem; color: var(--text-muted);
+      background: var(--code-bg); border: 1px solid var(--border);
+      border-radius: 4px; padding: 3px 8px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .api-line b { color: var(--text); }
+
+    /* ── File tree ────────────────────────────────────────────────────────── */
+    .tree {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); overflow: hidden;
+    }
+    .tree-row {
+      display: flex; align-items: baseline; gap: 0;
+      padding: 5px 16px; border-bottom: 1px solid var(--border);
+      font-family: var(--mono); font-size: 0.8125rem; line-height: 1.5;
+    }
+    .tree-row:last-child { border-bottom: none; }
+    .tree-row:hover { background: var(--surface2); }
+    .tree-indent { color: var(--border); white-space: pre; user-select: none; }
+    .tree-icon { margin-right: 6px; font-size: 0.75rem; flex-shrink: 0; }
+    .tree-name { color: var(--text); font-weight: 500; flex-shrink: 0; }
+    .tree-name.dir  { color: var(--blue); }
+    .tree-name.hdr  { color: var(--amber); }
+    .tree-name.cpp  { color: var(--green); }
+    .tree-name.rs   { color: var(--amber); }
+    .tree-name.toml { color: var(--cyan); }
+    .tree-desc {
+      color: var(--text-muted); font-size: 0.75rem; margin-left: 16px;
+      font-family: var(--sans); flex: 1; min-width: 0;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+
+    /* ── Examples grid ────────────────────────────────────────────────────── */
+    .examples { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+    @media (max-width: 640px) { .examples { grid-template-columns: 1fr; } }
+    .ex-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 18px 20px;
+      display: flex; flex-direction: column; gap: 10px;
+    }
+    .ex-card.ex-featured {
+      grid-column: 1 / -1; border-color: var(--amber); background: var(--amber-bg);
+    }
+    .ex-header { display: flex; align-items: flex-start; gap: 12px; }
+    .ex-num {
+      font-family: var(--mono); font-size: 0.7rem; font-weight: 700;
+      color: var(--text-muted); background: var(--surface2);
+      border: 1px solid var(--border); border-radius: 4px;
+      padding: 2px 7px; flex-shrink: 0; margin-top: 2px;
+    }
+    .ex-featured .ex-num { background: var(--amber); color: #000; border-color: var(--amber); }
+    .ex-name { font-family: var(--mono); font-size: 0.875rem; font-weight: 700; color: var(--text); }
+    .ex-desc { font-size: 0.8125rem; color: var(--text-muted); line-height: 1.55; }
+    .ex-tags { display: flex; gap: 6px; flex-wrap: wrap; }
+    .tag {
+      font-family: var(--mono); font-size: 0.68rem; font-weight: 600;
+      padding: 2px 7px; border-radius: 20px; border: 1px solid; white-space: nowrap;
+    }
+    .tag-graph  { color: var(--amber);  background: var(--amber-bg);  border-color: var(--amber-border); }
+    .tag-hsm    { color: var(--purple); background: var(--purple-bg); border-color: var(--purple-border); }
+    .tag-infer  { color: var(--green);  background: var(--green-bg);  border-color: var(--green-border); }
+    .tag-embed  { color: var(--cyan);   background: var(--cyan-bg);   border-color: #0C6673; }
+    .ex-topology {
+      font-family: var(--mono); font-size: 0.7rem; color: var(--text-muted);
+      background: var(--code-bg); border: 1px solid var(--border);
+      border-radius: 4px; padding: 8px 10px; overflow-x: auto;
+      white-space: pre; line-height: 1.6;
+    }
+    .ex-featured .ex-topology { background: var(--bg); }
+
+    /* ── Embedded primitives ──────────────────────────────────────────────── */
+    .primitives { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+    @media (max-width: 640px) { .primitives { grid-template-columns: 1fr; } }
+    .prim-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 20px;
+    }
+    .prim-name {
+      font-family: var(--mono); font-size: 0.85rem; font-weight: 700;
+      color: var(--cyan); margin-bottom: 6px;
+    }
+    .prim-desc { font-size: 0.8125rem; color: var(--text-muted); line-height: 1.55; margin-bottom: 10px; }
+    .prim-code {
+      font-family: var(--mono); font-size: 0.72rem; color: var(--text-muted);
+      background: var(--code-bg); border: 1px solid var(--border);
+      border-radius: 4px; padding: 8px 10px; overflow-x: auto;
+      white-space: pre; line-height: 1.5;
+    }
+    .prim-code .kw { color: var(--blue); }
+    .prim-code .str { color: var(--green); }
+    .prim-code .cm { color: var(--amber); }
+    .prim-code .fn { color: var(--purple); }
+
+    /* ── Safety section ───────────────────────────────────────────────────── */
+    .safety-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+    @media (max-width: 640px) { .safety-grid { grid-template-columns: 1fr; } }
+    .safety-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 20px;
+    }
+    .safety-card-title {
+      font-family: var(--mono); font-size: 0.85rem; font-weight: 700;
+      color: var(--red); margin-bottom: 8px;
+    }
+    .safety-card-desc { font-size: 0.8125rem; color: var(--text-muted); line-height: 1.6; }
+
+    /* ── Roadmap ──────────────────────────────────────────────────────────── */
+    .roadmap { display: flex; flex-direction: column; gap: 0; }
+    .rm-item {
+      display: flex; gap: 20px; padding: 20px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .rm-item:last-child { border-bottom: none; }
+    .rm-phase {
+      font-family: var(--mono); font-size: 0.75rem; font-weight: 700;
+      color: var(--amber); width: 80px; flex-shrink: 0; padding-top: 2px;
+    }
+    .rm-body { flex: 1; min-width: 0; }
+    .rm-title {
+      font-family: var(--mono); font-size: 0.875rem; font-weight: 700;
+      color: var(--text); margin-bottom: 6px;
+    }
+    .rm-desc { font-size: 0.8125rem; color: var(--text-muted); margin-bottom: 10px; line-height: 1.55; }
+    .rm-tags { display: flex; gap: 6px; flex-wrap: wrap; }
+    .rm-tag {
+      font-family: var(--mono); font-size: 0.68rem; font-weight: 600;
+      padding: 2px 7px; border-radius: 20px; border: 1px solid;
+    }
+
+    /* ── Reading list ─────────────────────────────────────────────────────── */
+    .reading { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+    @media (max-width: 640px) { .reading { grid-template-columns: 1fr; } }
+    .read-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 18px 20px;
+    }
+    .read-cat {
+      font-family: var(--mono); font-size: 0.7rem; font-weight: 700;
+      letter-spacing: 0.08em; text-transform: uppercase;
+      margin-bottom: 10px;
+    }
+    .read-item {
+      font-size: 0.8125rem; color: var(--text-muted); line-height: 1.55;
+      padding: 4px 0;
+    }
+    .read-item b { color: var(--text); font-weight: 600; }
+
+    /* ── Mapping table ────────────────────────────────────────────────────── */
+    .map-table td:first-child { color: var(--amber); font-weight: 600; }
+    .map-table td:nth-child(2) { color: var(--purple); font-weight: 600; }
+
+    /* ── Quote ────────────────────────────────────────────────────────────── */
+    .quote-block {
+      background: var(--surface); border: 1px solid var(--border);
+      border-left: 3px solid var(--amber); border-radius: var(--radius);
+      padding: 20px 24px; margin: 24px 0;
+      font-style: italic; color: var(--text-muted); font-size: 0.95rem;
+      line-height: 1.6;
+    }
+    .quote-block strong { color: var(--text); font-style: normal; }
+
+    /* ── Footer ───────────────────────────────────────────────────────────── */
+    .footer {
+      border-top: 1px solid var(--border); padding: 24px 0;
+      text-align: center; font-family: var(--mono); font-size: 0.75rem;
+      color: var(--text-dim);
+    }
+
+    /* ── Utility ──────────────────────────────────────────────────────────── */
+    code {
+      font-family: var(--mono); font-size: 0.85em;
+      background: var(--code-bg); padding: 1px 5px;
+      border-radius: 3px; border: 1px solid var(--border);
+    }
+    pre {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 14px 18px;
+      overflow-x: auto; font-family: var(--mono); font-size: 0.775rem;
+      line-height: 1.6; color: var(--text);
+    }
+    pre .c  { color: var(--text-muted); }
+    pre .kw { color: var(--blue); }
+    pre .str{ color: var(--green); }
+    pre .cm { color: var(--amber); }
+  </style>
+</head>
+<body>
+
+  <!-- ── Nav ──────────────────────────────────────────────────────────────── -->
+  <nav class="topnav">
+    <div class="topnav-inner">
+      <div class="topnav-brand">rust<span>LangGraph</span></div>
+      <div class="topnav-links">
+        <a href="#vision">Vision</a>
+        <a href="#architecture">Architecture</a>
+        <a href="#cpp">C++ Layer</a>
+        <a href="#embedded">Embedded</a>
+        <a href="#safety">Safety</a>
+        <a href="#roadmap">Roadmap</a>
+        <a href="#reading">Reading</a>
+      </div>
+    </div>
+  </nav>
+
+  <div class="page">
+
+    <!-- ── Hero ───────────────────────────────────────────────────────────── -->
+    <header class="hero">
+      <div class="hero-badge"><div class="dot"></div> C++20 &amp; Rust &middot; Embedded-first &middot; Zero-dep core</div>
+      <h1>Embedded AI <span>Orchestrator</span></h1>
+      <p class="hero-sub">
+        A LangGraph-inspired graph-based orchestration framework for embedded and automotive systems.
+        C++20 for the runtime, Rust for safety-critical boundaries. Deterministic shell around
+        non-deterministic inference &mdash; confidence-gated, timeout-safe, ISO&nbsp;26262 degraded-mode aware.
+      </p>
+      <div class="hero-stats">
+        <div class="hero-stat"><div class="dot dot-green"></div> <span class="val">4</span> C++ headers</div>
+        <div class="hero-stat"><div class="dot dot-amber"></div> <span class="val">7</span> examples</div>
+        <div class="hero-stat"><div class="dot dot-blue"></div> <span class="val">C++20</span> core</div>
+        <div class="hero-stat"><div class="dot dot-amber"></div> <span class="val">Rust</span> safety layer</div>
+        <div class="hero-stat"><div class="dot dot-purple"></div> <span class="val">zero</span> deps (stub)</div>
+        <div class="hero-stat"><div class="dot dot-red"></div> <span class="val">llama.cpp</span> optional</div>
+      </div>
+    </header>
+
+    <!-- ── Vision ─────────────────────────────────────────────────────────── -->
+    <section class="section" id="vision">
+      <div class="section-label">Vision</div>
+      <div class="section-title">Why this project exists</div>
+      <p class="section-sub">
+        Edge devices now run small LLMs (Phi-3, Gemma 2B, Qwen 0.5B) that produce probabilistic outputs.
+        Embedded systems need a deterministic orchestrator to manage these non-deterministic components safely.
+        LangGraph solved this for the cloud. This project solves it for the edge.
+      </p>
+      <div class="vision-grid">
+        <div class="vision-card v-cpp">
+          <div class="vision-name">C++20 Runtime</div>
+          <div class="vision-desc">
+            Header-only graph engine, HSM, and inference abstraction. Zero dependencies in stub mode.
+            Builds with any C++20 compiler. Designed for AUTOSAR Adaptive Platform targets.
+            Template-based &mdash; state is always a plain user struct.
+          </div>
+        </div>
+        <div class="vision-card v-rust">
+          <div class="vision-name">Rust Safety Layer</div>
+          <div class="vision-desc">
+            Memory-safe FFI boundary for safety-critical code. Formal verification of state transitions.
+            Compile-time guarantees on data races. Ideal for the ASIL-C/D safety monitor
+            that validates AI output before it reaches actuators.
+          </div>
+        </div>
+        <div class="vision-card v-embed">
+          <div class="vision-name">Embedded Primitives</div>
+          <div class="vision-desc">
+            Primitives LangGraph lacks: confidence-gated transitions, hard timeout nodes,
+            degraded-mode graph selection, budget-aware scheduling.
+            The deterministic shell retains veto power over the stochastic core.
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Architecture ───────────────────────────────────────────────────── -->
+    <section class="section" id="architecture">
+      <div class="section-label">Architecture</div>
+      <div class="section-title">Three-layer design</div>
+      <p class="section-sub">Three independent layers. Use any combination. Each layer is usable standalone.</p>
+      <div class="arch-wrap">
+        <div class="arch-diagram">
+          <div class="arch-row">
+            <div class="arch-box arch-app">
+              <div class="arch-box-name">Your Application</div>
+              <div class="arch-box-sub">ECU software &middot; diagnostic agent &middot; sensor node &middot; ADAS pipeline &middot; industrial IoT</div>
+            </div>
+          </div>
+          <div class="arch-arrows">&darr;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&darr;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&darr;</div>
+          <div class="arch-row arch-middle">
+            <div class="arch-box arch-hsm">
+              <div class="arch-box-name">lg::hsm</div>
+              <div class="arch-box-sub">Hierarchical state machine.<br>Behavioral contract.<br>Entry/exit &middot; LCA transitions.</div>
+            </div>
+            <div class="arch-box arch-graph">
+              <div class="arch-box-name">lg::Graph&lt;S&gt;</div>
+              <div class="arch-box-sub">Execution engine.<br>Nodes &middot; edges &middot; routers.<br>Cycles &middot; streaming &middot; interrupts.</div>
+            </div>
+            <div class="arch-box arch-infer">
+              <div class="arch-box-name">lg::inference</div>
+              <div class="arch-box-sub">Inference abstraction.<br>StubEngine / LlamaCppEngine.<br>Plug in any SLM.</div>
+            </div>
+          </div>
+          <div class="arch-row">
+            <div class="arch-box arch-embedded">
+              <div class="arch-box-name">lg::embedded &mdash; confidence_router &middot; with_timeout &middot; DegradedModeRunner</div>
+              <div class="arch-box-sub">Primitives LangGraph lacks. Probabilistic guard conditions, hard deadlines, capability-layered execution.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Two-layer pattern ──────────────────────────────────────────────── -->
+    <section class="section">
+      <div class="section-label">Pattern</div>
+      <div class="section-title">The two-layer architecture</div>
+      <p class="section-sub">
+        HSM manages the deterministic behavioral contract. Graph runs the agentic inference loop inside an HSM state.
+        This separation is what makes AI safe in embedded: the HSM is formally verifiable, the graph is not.
+      </p>
+      <div class="two-layer">
+        <div class="layer-box l-hsm">
+          <div class="layer-label">Layer 1 &mdash; Deterministic</div>
+          <div class="layer-title">HSM (Hierarchical State Machine)</div>
+          <div class="layer-desc">
+            Manages coarse system modes: OPERATING, DEGRADED, SAFE_HALT.
+            Entry/exit actions guaranteed. Event propagation up the hierarchy.
+            LCA-based UML 2.0 transitions. This is the safety contract.
+          </div>
+          <div class="layer-props">
+            <div class="layer-prop"><b>OPERATING</b> &rarr; AI available, full graph runs</div>
+            <div class="layer-prop"><b>DEGRADED</b> &rarr; AI unavailable, rule-based only</div>
+            <div class="layer-prop"><b>SAFE_HALT</b> &rarr; ASIL-D safe state, all stopped</div>
+          </div>
+        </div>
+        <div class="layer-box l-graph">
+          <div class="layer-label">Layer 2 &mdash; Stochastic</div>
+          <div class="layer-title">Graph (Execution Engine)</div>
+          <div class="layer-desc">
+            Runs inside an HSM state. Manages the agentic loop: reason, tool-call, observe, repeat.
+            Confidence-gated transitions. Hard timeouts. The LLM decides edges; the graph enforces constraints.
+          </div>
+          <div class="layer-props">
+            <div class="layer-prop"><b>reason</b> &rarr; LLM decides next action</div>
+            <div class="layer-prop"><b>tool_execute</b> &rarr; run selected tool</div>
+            <div class="layer-prop"><b>[conf gate]</b> &rarr; veto low-confidence finishes</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── C++ Implementation ─────────────────────────────────────────────── -->
+    <section class="section" id="cpp">
+      <div class="section-label">Implementation</div>
+      <div class="section-title">C++20 core &mdash; header-only</div>
+      <p class="section-sub">
+        Everything lives in <code>include/lg/</code>. No build step for the library itself.
+        GCC 13+ or Clang 16+. Zero dependencies beyond the C++20 standard library.
+      </p>
+      <div class="tree">
+        <div class="tree-row"><span class="tree-icon">&#x1f4c1;</span><span class="tree-name dir">cpp/</span></div>
+        <div class="tree-row"><span class="tree-indent">  </span><span class="tree-icon">&#x1f4c1;</span><span class="tree-name dir">include/lg/</span></div>
+        <div class="tree-row"><span class="tree-indent">    </span><span class="tree-icon">&#x25C8;</span><span class="tree-name hdr">graph.hpp</span><span class="tree-desc">Core engine. Graph&lt;S&gt; builder + run loop. Nodes, edges, conditional routing, step streaming, interrupts.</span></div>
+        <div class="tree-row"><span class="tree-indent">    </span><span class="tree-icon">&#x25C8;</span><span class="tree-name hdr">embedded.hpp</span><span class="tree-desc">Embedded extensions. ConfidenceState concept, confidence_router, with_timeout, DegradedModeRunner.</span></div>
+        <div class="tree-row"><span class="tree-indent">    </span><span class="tree-icon">&#x25C8;</span><span class="tree-name hdr">hsm.hpp</span><span class="tree-desc">Hierarchical state machine. UML 2.0 LCA transitions, entry/exit propagation, history, event dispatch.</span></div>
+        <div class="tree-row"><span class="tree-indent">    </span><span class="tree-icon">&#x25C8;</span><span class="tree-name hdr">inference.hpp</span><span class="tree-desc">Inference engine interface. InferenceEngine base, StubEngine, LlamaCppEngine, make_node() factory.</span></div>
+        <div class="tree-row"><span class="tree-indent">  </span><span class="tree-icon">&#x1f4c1;</span><span class="tree-name dir">examples/</span><span class="tree-desc">7 runnable examples, each building on the previous</span></div>
+        <div class="tree-row"><span class="tree-indent">  </span><span class="tree-icon">&#x2699;</span><span class="tree-name">Makefile</span><span class="tree-desc">g++ -std=c++20. make / make clean.</span></div>
+        <div class="tree-row"><span class="tree-indent">  </span><span class="tree-icon">&#x1f4c4;</span><span class="tree-name">overview.html</span><span class="tree-desc">C++ layer overview page</span></div>
+        <div class="tree-row"><span class="tree-indent"></span><span class="tree-icon">&#x1f4c1;</span><span class="tree-name dir">rust/ (planned)</span><span class="tree-desc">Rust safety layer &mdash; FFI bindings, safety monitor, formal verification</span></div>
+        <div class="tree-row"><span class="tree-indent"></span><span class="tree-icon">&#x1f4c4;</span><span class="tree-name">knowledge-base.mdx</span><span class="tree-desc">Deep research: LangGraph, FSMs, HSMs, automotive safety, edge AI patterns</span></div>
+      </div>
+    </section>
+
+    <!-- ── Core concepts ──────────────────────────────────────────────────── -->
+    <section class="section">
+      <div class="section-label">API</div>
+      <div class="section-title">Core concepts</div>
+      <p class="section-sub">Four classes form the C++ framework. State type S is always a plain user-defined struct.</p>
+      <div class="concepts">
+        <div class="concept-card c-graph">
+          <div class="concept-name">lg::Graph&lt;S&gt;</div>
+          <div class="concept-desc">Execution engine. Templated on state struct. Nodes mutate state; routers read it. Cycles are first-class.</div>
+          <div class="concept-api">
+            <div class="api-line"><b>.add_node</b>(name, fn)</div>
+            <div class="api-line"><b>.add_edge</b>(from, to)</div>
+            <div class="api-line"><b>.add_conditional_edge</b>(from, router)</div>
+            <div class="api-line"><b>.set_entry</b>(name)</div>
+            <div class="api-line"><b>.on_step</b>(fn) <span style="color:var(--text-dim)">// streaming</span></div>
+            <div class="api-line"><b>.set_interrupt</b>(name, fn)</div>
+            <div class="api-line"><b>.run</b>(state, max_steps)</div>
+          </div>
+        </div>
+        <div class="concept-card c-hsm">
+          <div class="concept-name">lg::hsm::HSM&lt;S&gt;</div>
+          <div class="concept-desc">Hierarchical state machine. LCA-based UML 2.0 transitions. Parent states handle events children don't.</div>
+          <div class="concept-api">
+            <div class="api-line"><b>.add_state</b>({name, parent, on_entry, on_exit, ...})</div>
+            <div class="api-line"><b>.set_initial</b>(name)</div>
+            <div class="api-line"><b>.on_transition</b>(fn)</div>
+            <div class="api-line"><b>.init</b>(state)</div>
+            <div class="api-line"><b>.dispatch</b>(event, state)</div>
+            <div class="api-line"><b>.current</b>() &rarr; string_view</div>
+            <div class="api-line"><b>INTERNAL</b> / <b>UNHANDLED</b> sentinels</div>
+          </div>
+        </div>
+        <div class="concept-card c-infer">
+          <div class="concept-name">lg::inference</div>
+          <div class="concept-desc">Engine abstraction. Swap StubEngine for LlamaCppEngine without touching node logic.</div>
+          <div class="concept-api">
+            <div class="api-line"><b>InferenceEngine</b>::generate(req) &rarr; Response</div>
+            <div class="api-line"><b>StubEngine</b>.add_response(kw, text, conf)</div>
+            <div class="api-line"><b>LlamaCppEngine</b>(model_path)</div>
+            <div class="api-line"><b>make_node</b>&lt;S&gt;(engine, build, apply)</div>
+            <div class="api-line">Response: {text, <b>confidence</b>, timed_out}</div>
+            <div class="api-line">Request: {system_prompt, user_prompt, max_tokens}</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Embedded primitives ────────────────────────────────────────────── -->
+    <section class="section" id="embedded">
+      <div class="section-label">Embedded</div>
+      <div class="section-title">Primitives LangGraph lacks</div>
+      <p class="section-sub">
+        Edge/embedded systems need guard conditions that are probabilities, not booleans.
+        Deadlines that are hard, not soft. Graphs that degrade gracefully.
+      </p>
+      <div class="primitives">
+        <div class="prim-card">
+          <div class="prim-name">Confidence-gated router</div>
+          <div class="prim-desc">
+            Guard condition is a probability threshold, not a boolean.
+            If model confidence &lt; 0.85, route to fallback instead of acting on the LLM decision.
+          </div>
+          <div class="prim-code"><span class="kw">auto</span> router = lg::embedded::<span class="fn">confidence_router</span>&lt;State&gt;(
+    <span class="str">0.85</span>,          <span class="cm">// threshold</span>
+    <span class="str">"act"</span>,           <span class="cm">// above &rarr; trust model</span>
+    <span class="str">"fallback"</span>       <span class="cm">// below &rarr; rule-based</span>
+);</div>
+        </div>
+        <div class="prim-card">
+          <div class="prim-name">Hard timeout wrapper</div>
+          <div class="prim-desc">
+            Every LLM node has a deterministic deadline. If inference exceeds the budget,
+            the fallback fires automatically. No hung threads in safety-critical paths.
+          </div>
+          <div class="prim-code"><span class="kw">auto</span> safe_node = lg::embedded::<span class="fn">with_timeout</span>&lt;State&gt;(
+    inference_fn,
+    <span class="str">std::chrono::milliseconds</span>(<span class="str">50</span>),
+    fallback_fn
+);</div>
+        </div>
+        <div class="prim-card">
+          <div class="prim-name">Degraded mode runner</div>
+          <div class="prim-desc">
+            Capability-layered execution. Select which graph to run based on power, thermal,
+            connectivity. Full AI &rarr; rule-based &rarr; minimal safe state.
+          </div>
+          <div class="prim-code">lg::embedded::<span class="fn">DegradedModeRunner</span>&lt;State&gt; runner;
+runner
+  .<span class="fn">add_level</span>(Full,        full_graph)
+  .<span class="fn">add_level</span>(Degraded,    rule_graph)
+  .<span class="fn">add_level</span>(MinimalSafe, halt_graph);</div>
+        </div>
+        <div class="prim-card">
+          <div class="prim-name">ConfidenceState concept</div>
+          <div class="prim-desc">
+            C++20 concept constraining which state types can use confidence routing.
+            Any struct with a <code>last_confidence</code> field qualifies. Compile-time safety.
+          </div>
+          <div class="prim-code"><span class="kw">template</span>&lt;<span class="kw">typename</span> S&gt;
+<span class="kw">concept</span> ConfidenceState =
+  GraphState&lt;S&gt; &amp;&amp; <span class="kw">requires</span>(<span class="kw">const</span> S s) {
+    { s.last_confidence }
+      &rarr; <span class="fn">std::convertible_to</span>&lt;<span class="kw">double</span>&gt;;
+};</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Examples ───────────────────────────────────────────────────────── -->
+    <section class="section">
+      <div class="section-label">Examples</div>
+      <div class="section-title">Seven runnable examples</div>
+      <p class="section-sub">Each builds on the previous. Run with <code>make && ./build/07_llm_brain_agent</code></p>
+      <div class="examples">
+        <div class="ex-card">
+          <div class="ex-header"><div class="ex-num">01</div><div class="ex-name">simple_chain</div></div>
+          <div class="ex-desc">Linear pipeline with conditional branch. Two inputs route to different response nodes based on keyword classification.</div>
+          <div class="ex-tags">
+            <span class="tag tag-graph">Graph&lt;S&gt;</span>
+            <span class="tag tag-graph">conditional_edge</span>
+            <span class="tag tag-graph">on_step</span>
+          </div>
+          <div class="ex-topology">preprocess &rarr; classify &rarr; [router]
+             &rarr; respond_technical &rarr; END
+             &rarr; respond_general   &rarr; END</div>
+        </div>
+        <div class="ex-card">
+          <div class="ex-header"><div class="ex-num">02</div><div class="ex-name">agent_loop</div></div>
+          <div class="ex-desc">Cyclic ReAct agent. Tool &rarr; agent &rarr; tool &rarr; ... &rarr; END. Demonstrates cycles &mdash; impossible in DAG-only frameworks.</div>
+          <div class="ex-tags">
+            <span class="tag tag-graph">Graph&lt;S&gt;</span>
+            <span class="tag tag-graph">cycles</span>
+            <span class="tag tag-graph">tool dispatch</span>
+          </div>
+          <div class="ex-topology">agent &larr;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&rarr;
+  &vert;                                  &vert;
+  &vert;   [router] &rarr; tool_execute       &vert;
+  &vert;   &rarr; END (when done)              &larr;&mdash;&mdash;&mdash;&mdash;&rarr;</div>
+        </div>
+        <div class="ex-card">
+          <div class="ex-header"><div class="ex-num">03</div><div class="ex-name">embedded_sensor</div></div>
+          <div class="ex-desc">Temperature sensor with confidence-gated routing. Below-threshold confidence triggers deterministic rule-based fallback.</div>
+          <div class="ex-tags">
+            <span class="tag tag-embed">confidence_router</span>
+            <span class="tag tag-embed">DegradedModeRunner</span>
+            <span class="tag tag-embed">ConfidenceState</span>
+          </div>
+          <div class="ex-topology">read_sensor &rarr; inference &rarr; [conf &ge; 0.85?]
+               &rarr; act_on_inference &rarr; log
+               &rarr; rule_based       &rarr; log</div>
+        </div>
+        <div class="ex-card">
+          <div class="ex-header"><div class="ex-num">04</div><div class="ex-name">automotive_diagnostic</div></div>
+          <div class="ex-desc">Full automotive agent: loops calling CAN bus, DTC, live PIDs, actuator tests. Confidence grows with evidence.</div>
+          <div class="ex-tags">
+            <span class="tag tag-graph">agent loop</span>
+            <span class="tag tag-embed">confidence gate</span>
+            <span class="tag tag-embed">degraded mode</span>
+          </div>
+          <div class="ex-topology">agent &larr;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&rarr;
+  &vert;                                &vert;
+  &vert;&rarr; tool_execute &rarr; inference  &vert;
+  &vert;  [conf &ge; 0.85] &rarr; report      &vert;
+  &vert;  [conf &lt; 0.85] &rarr;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&rarr;</div>
+        </div>
+        <div class="ex-card">
+          <div class="ex-header"><div class="ex-num">05</div><div class="ex-name">hsm_ecu_states</div></div>
+          <div class="ex-desc">HSM manages coarse system states. Graph runs inside HSM states. critical_fault handled at OPERATING parent level.</div>
+          <div class="ex-tags">
+            <span class="tag tag-hsm">HSM&lt;S&gt;</span>
+            <span class="tag tag-hsm">hierarchy</span>
+            <span class="tag tag-hsm">entry/exit</span>
+            <span class="tag tag-graph">Graph inside HSM</span>
+          </div>
+          <div class="ex-topology">OPERATING (parent)
+  &boxur;&boxur;&boxur; NORMAL    &larr; runs Graph on entry
+  &boxur;&boxur;&boxur; ALERT     &larr; runs Graph on entry
+DEGRADED         &larr; rule-based only
+SAFE_HALT        &larr; ASIL-D safe state</div>
+        </div>
+        <div class="ex-card">
+          <div class="ex-header"><div class="ex-num">06</div><div class="ex-name">llm_diagnostic</div></div>
+          <div class="ex-desc">InferenceEngine node in diagnostic agent. One-line swap: StubEngine &rarr; LlamaCppEngine. No graph changes needed.</div>
+          <div class="ex-tags">
+            <span class="tag tag-infer">InferenceEngine</span>
+            <span class="tag tag-infer">make_node()</span>
+            <span class="tag tag-infer">StubEngine</span>
+            <span class="tag tag-embed">confidence gate</span>
+          </div>
+          <div class="ex-topology">agent &rarr; tool_execute &rarr; inference_node
+       [lg::inference::Make_node()]
+       &darr;
+       [conf_router] &rarr; report | agent</div>
+        </div>
+        <div class="ex-card ex-featured">
+          <div class="ex-header">
+            <div class="ex-num">07</div>
+            <div class="ex-name">llm_brain_agent &mdash; LLM as the orchestration brain</div>
+          </div>
+          <div class="ex-desc">
+            The model decides <em>which tool to call next</em> and <em>when it has enough evidence</em> &mdash; not the programmer.
+            The reason node calls the inference engine, parses a structured decision (ACTION / TOOL / REASONING),
+            and the graph routes accordingly. A confidence gate overrides the model's "finish" decision if confidence
+            is below threshold &mdash; the deterministic shell retains veto power.
+          </div>
+          <div class="ex-tags">
+            <span class="tag tag-infer">LLM orchestrates</span>
+            <span class="tag tag-graph">ReAct loop</span>
+            <span class="tag tag-embed">confidence gate</span>
+            <span class="tag tag-infer">structured output</span>
+            <span class="tag tag-infer">make_node()</span>
+          </div>
+          <div class="ex-topology">reason &larr;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&rarr;
+  &vert;  [LLM decides: ACTION + TOOL]    &vert;
+  &vert;&rarr; tool_execute &mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&rarr;   (loop: model picks tools)
+  &vert;&rarr; [confidence gate]
+        conf &ge; 0.85  &rarr; report_fault &rarr; END
+        conf &lt; 0.85  &rarr; reason again     (override model's finish)</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── LangGraph &harr; HSM mapping ──────────────────────────────────── -->
+    <section class="section">
+      <div class="section-label">Mapping</div>
+      <div class="section-title">LangGraph concepts &rarr; Embedded equivalents</div>
+      <p class="section-sub">How LangGraph primitives map to the embedded HSM + Graph architecture.</p>
+      <div class="tbl-wrap">
+        <table class="map-table">
+          <thead>
+            <tr><th>LangGraph</th><th>Embedded Equivalent</th><th>Notes</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Node</td><td>State with entry/exit actions</td><td class="td-note">HSM state descriptor with on_entry / on_exit</td></tr>
+            <tr><td>Conditional edge</td><td>Guard condition on transition</td><td class="td-note">Probability threshold instead of boolean</td></tr>
+            <tr><td>Subgraph</td><td>Nested submachine (child HSM)</td><td class="td-note">Graph runs inside an HSM state</td></tr>
+            <tr><td>Checkpointing</td><td>History pseudostate + NVRAM</td><td class="td-note">Resume from last known good state</td></tr>
+            <tr><td>Human-in-the-loop</td><td>Deferred event queue + escalation</td><td class="td-note">Pause, wait for input, resume</td></tr>
+            <tr><td>Multi-agent</td><td>Orthogonal regions</td><td class="td-note">Concurrent sub-machines, no explosion</td></tr>
+            <tr><td>Streaming</td><td>Event publication on transitions</td><td class="td-note">on_step / on_transition callbacks</td></tr>
+            <tr><td>Cycles</td><td>Internal transitions + loops</td><td class="td-note">Agent loops until confidence threshold met</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ── Safety ─────────────────────────────────────────────────────────── -->
+    <section class="section" id="safety">
+      <div class="section-label">Safety</div>
+      <div class="section-title">Automotive safety context</div>
+      <p class="section-sub">
+        AI components are non-deterministic. Safety standards require deterministic verification.
+        The solution: decompose the safety requirement across an AI component and a safety monitor.
+      </p>
+      <div class="safety-grid">
+        <div class="safety-card">
+          <div class="safety-card-title">ASIL Decomposition</div>
+          <div class="safety-card-desc">
+            AI Component (ASIL-B) handles nominal case with high performance.
+            Safety Monitor (ASIL-C, deterministic) validates AI output and enforces hard invariants.
+            Combined: ASIL-B &times; ASIL-C = ASIL-D equivalent. The monitor can veto any AI decision.
+          </div>
+        </div>
+        <div class="safety-card">
+          <div class="safety-card-title">Degraded Mode Graph</div>
+          <div class="safety-card-desc">
+            <b>Full graph</b> &mdash; LLM available, battery &gt; 30%, thermal OK<br>
+            <b>Simplified graph</b> &mdash; battery low OR thermal throttle &rarr; rule-based heuristics only<br>
+            <b>Minimal safe state</b> &mdash; critical fault &rarr; halt, alert, wait for recovery
+          </div>
+        </div>
+        <div class="safety-card">
+          <div class="safety-card-title">Standards Stack</div>
+          <div class="safety-card-desc">
+            <b>ISO 26262</b> &mdash; Functional safety, ASIL A&rarr;D<br>
+            <b>ISO 21448 (SOTIF)</b> &mdash; AI/ML sensor uncertainty and non-determinism<br>
+            <b>MISRA C++:2023</b> &mdash; Coding guidelines for safety-critical C++<br>
+            <b>AUTOSAR Adaptive</b> &mdash; High-compute platform (POSIX, C++17) for AI-capable ECUs
+          </div>
+        </div>
+        <div class="safety-card">
+          <div class="safety-card-title">Why Rust for the Safety Layer</div>
+          <div class="safety-card-desc">
+            Memory safety without garbage collection. No null pointer dereferences, no data races.
+            Compile-time ownership guarantees. Ideal for the safety monitor that must be formally verifiable.
+            FFI with C++ is well-supported via <code>extern "C"</code> bindings.
+          </div>
+        </div>
+      </div>
+
+      <div class="quote-block">
+        <strong>The orchestrator is the contract between the deterministic world and the stochastic one.</strong>
+        Embedded systems will need what avionics already have &mdash; formal behavioral specifications &mdash;
+        but now those specifications must safely contain probabilistic inference engines.
+      </div>
+    </section>
+
+    <!-- ── Feature matrix ─────────────────────────────────────────────────── -->
+    <section class="section">
+      <div class="section-label">Status</div>
+      <div class="section-title">Feature matrix</div>
+      <p class="section-sub">Current implementation status across C++ and planned Rust layers.</p>
+      <div class="tbl-wrap">
+        <table>
+          <thead>
+            <tr><th>Feature</th><th>C++ Layer</th><th>Rust Layer</th><th>Notes</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="td-feat">Graph engine (nodes, edges, routing)</td>
+              <td><span class="badge badge-done">done</span></td>
+              <td><span class="badge badge-plan">planned</span></td>
+              <td class="td-note">Cycles, conditional edges, streaming, interrupts</td>
+            </tr>
+            <tr>
+              <td class="td-feat">Hierarchical state machine</td>
+              <td><span class="badge badge-done">done</span></td>
+              <td><span class="badge badge-plan">planned</span></td>
+              <td class="td-note">UML 2.0 LCA, entry/exit, history, event propagation</td>
+            </tr>
+            <tr>
+              <td class="td-feat">Inference abstraction</td>
+              <td><span class="badge badge-done">done</span></td>
+              <td><span class="badge badge-plan">planned</span></td>
+              <td class="td-note">StubEngine + LlamaCppEngine skeleton</td>
+            </tr>
+            <tr>
+              <td class="td-feat">Confidence-gated routing</td>
+              <td><span class="badge badge-done">done</span></td>
+              <td><span class="badge badge-plan">planned</span></td>
+              <td class="td-note">Probability threshold as guard condition</td>
+            </tr>
+            <tr>
+              <td class="td-feat">Hard timeout wrapper</td>
+              <td><span class="badge badge-done">done</span></td>
+              <td><span class="badge badge-plan">planned</span></td>
+              <td class="td-note">std::async for POSIX; RTOS primitives for bare-metal</td>
+            </tr>
+            <tr>
+              <td class="td-feat">Degraded mode runner</td>
+              <td><span class="badge badge-done">done</span></td>
+              <td><span class="badge badge-plan">planned</span></td>
+              <td class="td-note">Capability-layered graph selection</td>
+            </tr>
+            <tr>
+              <td class="td-feat">Safety monitor (FFI boundary)</td>
+              <td><span class="badge badge-plan">planned</span></td>
+              <td><span class="badge badge-plan">planned</span></td>
+              <td class="td-note">Rust validates C++ AI output before actuation</td>
+            </tr>
+            <tr>
+              <td class="td-feat">Formal verification of transitions</td>
+              <td></td>
+              <td><span class="badge badge-plan">planned</span></td>
+              <td class="td-note">Model checking with Kani or Prusti</td>
+            </tr>
+            <tr>
+              <td class="td-feat">Orthogonal regions</td>
+              <td><span class="badge badge-plan">planned</span></td>
+              <td><span class="badge badge-plan">planned</span></td>
+              <td class="td-note">True concurrent sub-machines within HSM</td>
+            </tr>
+            <tr>
+              <td class="td-feat">Deferred events</td>
+              <td><span class="badge badge-plan">planned</span></td>
+              <td><span class="badge badge-plan">planned</span></td>
+              <td class="td-note">Hold events, replay on state change</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ── Roadmap ────────────────────────────────────────────────────────── -->
+    <section class="section" id="roadmap">
+      <div class="section-label">Roadmap</div>
+      <div class="section-title">Development phases</div>
+      <p class="section-sub">From C++ prototype to dual-language embedded orchestrator.</p>
+      <div class="roadmap">
+        <div class="rm-item">
+          <div class="rm-phase">Phase 1</div>
+          <div class="rm-body">
+            <div class="rm-title">C++ Core (current)</div>
+            <div class="rm-desc">
+              Header-only graph engine, HSM, inference abstraction, embedded primitives.
+              7 runnable examples demonstrating the full pattern from simple chain to LLM-brain agent.
+              StubEngine for development, LlamaCppEngine skeleton for production.
+            </div>
+            <div class="rm-tags">
+              <span class="rm-tag tag-graph">Graph&lt;S&gt;</span>
+              <span class="rm-tag tag-hsm">HSM&lt;S&gt;</span>
+              <span class="rm-tag tag-infer">InferenceEngine</span>
+              <span class="rm-tag tag-embed">Embedded</span>
+            </div>
+          </div>
+        </div>
+        <div class="rm-item">
+          <div class="rm-phase">Phase 2</div>
+          <div class="rm-body">
+            <div class="rm-title">Rust Safety Layer</div>
+            <div class="rm-desc">
+              Rust crate providing FFI-safe wrappers around the C++ core. Safety monitor that validates
+              AI output against physical invariants. Compile-time guarantees on data access.
+              Cargo build system with cc crate for C++ interop.
+            </div>
+            <div class="rm-tags">
+              <span class="rm-tag" style="color:var(--amber);background:var(--amber-bg);border-color:var(--amber-border)">Rust FFI</span>
+              <span class="rm-tag" style="color:var(--red);background:var(--red-bg);border-color:#863034">Safety Monitor</span>
+              <span class="rm-tag" style="color:var(--green);background:var(--green-bg);border-color:var(--green-border)">Invariant Checks</span>
+            </div>
+          </div>
+        </div>
+        <div class="rm-item">
+          <div class="rm-phase">Phase 3</div>
+          <div class="rm-body">
+            <div class="rm-title">Advanced HSM Features</div>
+            <div class="rm-desc">
+              Orthogonal regions (true concurrent sub-machines). Deferred event queues.
+              Deep/shallow history pseudostates. Run-to-completion semantics with event queue.
+              These are needed for complex multi-sensor embedded systems.
+            </div>
+            <div class="rm-tags">
+              <span class="rm-tag tag-hsm">Orthogonal</span>
+              <span class="rm-tag tag-hsm">History</span>
+              <span class="rm-tag tag-hsm">Deferred Events</span>
+              <span class="rm-tag tag-hsm">RTC Semantics</span>
+            </div>
+          </div>
+        </div>
+        <div class="rm-item">
+          <div class="rm-phase">Phase 4</div>
+          <div class="rm-body">
+            <div class="rm-title">Real Model Integration</div>
+            <div class="rm-desc">
+              End-to-end testing with Phi-3 Mini, Gemma 2B, Qwen 2.5 on target hardware.
+              Benchmark inference latency vs confidence. Tune degraded-mode thresholds.
+              Validate on Raspberry Pi 5, NVIDIA Jetson, automotive SoCs.
+            </div>
+            <div class="rm-tags">
+              <span class="rm-tag tag-infer">llama.cpp</span>
+              <span class="rm-tag tag-infer">GGUF Models</span>
+              <span class="rm-tag tag-embed">Benchmarking</span>
+            </div>
+          </div>
+        </div>
+        <div class="rm-item">
+          <div class="rm-phase">Phase 5</div>
+          <div class="rm-body">
+            <div class="rm-title">Formal Verification</div>
+            <div class="rm-desc">
+              Model-check HSM transitions with Kani (Rust) or UPPAAL. Prove safety monitor
+              invariants hold under all inputs. Generate certification artifacts for ISO 26262 / SOTIF.
+            </div>
+            <div class="rm-tags">
+              <span class="rm-tag" style="color:var(--purple);background:var(--purple-bg);border-color:var(--purple-border)">Kani</span>
+              <span class="rm-tag" style="color:var(--purple);background:var(--purple-bg);border-color:var(--purple-border)">UPPAAL</span>
+              <span class="rm-tag" style="color:var(--red);background:var(--red-bg);border-color:#863034">ISO 26262</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Recommended models ─────────────────────────────────────────────── -->
+    <section class="section">
+      <div class="section-label">Models</div>
+      <div class="section-title">Recommended SLMs for embedded</div>
+      <p class="section-sub">Small language models suitable for on-device inference via llama.cpp.</p>
+      <div class="tbl-wrap">
+        <table>
+          <thead>
+            <tr><th>Model</th><th>Size</th><th>RAM</th><th>Target</th><th>Notes</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td style="color:var(--amber);font-weight:600">Qwen2.5 0.5B Q8</td>
+              <td>~500 MB</td><td>~700 MB</td>
+              <td><span class="badge" style="background:var(--purple-bg);color:var(--purple);border:1px solid var(--purple-border)">fast</span> <span class="badge" style="background:var(--blue-bg);color:var(--blue);border:1px solid var(--blue-border)">CPU</span></td>
+              <td class="td-note">Smallest. Cortex-A series, automotive SoC</td>
+            </tr>
+            <tr>
+              <td style="color:var(--amber);font-weight:600">Phi-3 Mini 3.8B Q4</td>
+              <td>~2.2 GB</td><td>~2.8 GB</td>
+              <td><span class="badge badge-done">good</span> <span class="badge" style="background:var(--blue-bg);color:var(--blue);border:1px solid var(--blue-border)">CPU</span></td>
+              <td class="td-note">Strong reasoning. NVIDIA Jetson / x86 embedded</td>
+            </tr>
+            <tr>
+              <td style="color:var(--amber);font-weight:600">Gemma 2 2B Q4</td>
+              <td>~1.5 GB</td><td>~2 GB</td>
+              <td><span class="badge badge-done">good</span> <span class="badge" style="background:var(--blue-bg);color:var(--blue);border:1px solid var(--blue-border)">CPU</span></td>
+              <td class="td-note">Instruction following. Raspberry Pi 5 / AM6x</td>
+            </tr>
+            <tr>
+              <td style="color:var(--amber);font-weight:600">TinyLlama 1.1B Q4</td>
+              <td>~670 MB</td><td>~900 MB</td>
+              <td><span class="badge" style="background:var(--purple-bg);color:var(--purple);border:1px solid var(--purple-border)">fast</span> <span class="badge" style="background:var(--blue-bg);color:var(--blue);border:1px solid var(--blue-border)">CPU</span></td>
+              <td class="td-note">Minimal footprint. Lower reasoning quality</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ── Reading list ───────────────────────────────────────────────────── -->
+    <section class="section" id="reading">
+      <div class="section-label">Knowledge Base</div>
+      <div class="section-title">Reading list &amp; references</div>
+      <p class="section-sub">Foundational resources that shaped this project's architecture.</p>
+      <div class="reading">
+        <div class="read-card">
+          <div class="read-cat" style="color:var(--amber)">Foundational</div>
+          <div class="read-item"><b>Harel 1987</b> &mdash; Statecharts: A Visual Formalism for Complex Systems</div>
+          <div class="read-item"><b>Samek</b> &mdash; Practical UML Statecharts in C/C++, 2nd Ed. (QP framework)</div>
+          <div class="read-item"><b>Boost::ext::SML</b> &mdash; C++14 header-only state machine DSL, zero overhead</div>
+          <div class="read-item"><b>SML2</b> &mdash; C++20 rewrite with concepts and modules</div>
+        </div>
+        <div class="read-card">
+          <div class="read-cat" style="color:var(--red)">Automotive Safety</div>
+          <div class="read-item"><b>ISO 26262</b> &mdash; Functional safety for road vehicles (ASIL A&rarr;D)</div>
+          <div class="read-item"><b>ISO 21448 (SOTIF)</b> &mdash; Safety of the Intended Functionality for AI/ML</div>
+          <div class="read-item"><b>arXiv:2103.10529</b> &mdash; ML in certified systems (ISO 26262 + AI)</div>
+          <div class="read-item"><b>arXiv:2606.07437</b> &mdash; Re-imagining ISO 26262 for autonomous vehicles</div>
+          <div class="read-item"><b>AUTOSAR Adaptive</b> &mdash; Software architecture for high-compute ECUs</div>
+        </div>
+        <div class="read-card">
+          <div class="read-cat" style="color:var(--blue)">C++ Implementation</div>
+          <div class="read-item"><b>C++20 Coroutines</b> &mdash; Compiler-generated state machines via co_await</div>
+          <div class="read-item"><b>CppNow 2019</b> &mdash; "Rise of the State Machines" (benchmark of all approaches)</div>
+          <div class="read-item"><b>MISRA C++:2023</b> &mdash; Coding guidelines for safety-critical C++</div>
+        </div>
+        <div class="read-card">
+          <div class="read-cat" style="color:var(--purple)">Formal Methods</div>
+          <div class="read-item"><b>TLA+</b> &mdash; "Specifying Systems" (Lamport) for distributed/concurrent systems</div>
+          <div class="read-item"><b>UPPAAL</b> &mdash; Model checker for real-time systems (automotive research)</div>
+          <div class="read-item"><b>Kani</b> &mdash; Rust verification tool by AWS</div>
+          <div class="read-item"><b>Prusti</b> &mdash; Formal verification for Rust programs</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Build ──────────────────────────────────────────────────────────── -->
+    <section class="section">
+      <div class="section-label">Build</div>
+      <div class="section-title">Getting started</div>
+      <p class="section-sub">GCC 13+ or Clang 16+. No dependencies beyond the C++20 standard library.</p>
+      <pre><span class="c"># Build all C++ examples</span>
+<span class="kw">cd</span> cpp && make
+
+<span class="c"># Run the LLM brain agent</span>
+./build/07_llm_brain_agent
+
+<span class="c"># Run the HSM ECU states example</span>
+./build/05_hsm_ecu_states
+
+<span class="c"># Clean</span>
+make clean</pre>
+    </section>
+
+    <div class="quote-block">
+      In classical systems, <strong>you</strong> decide the edges. Transition conditions are deterministic code you wrote.
+      In LLM systems, <strong>the LLM decides the edges</strong> &mdash; based on natural language understanding of
+      unstructured output. The graph structure is partially runtime-dynamic. That is genuinely novel
+      and requires new infrastructure.
+    </div>
+
+    <div class="footer">
+      embeddedGraph &mdash; Embedded AI Orchestrator &mdash; C++20 &amp; Rust
+    </div>
+
+  </div>
+
+</body>
+</html>

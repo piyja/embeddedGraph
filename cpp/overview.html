@@ -1,0 +1,883 @@
+<title>embeddedGraph/cpp — C++20 Embedded AI Orchestration</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<style>
+/* ── Tokens ───────────────────────────────────────────────────────────────── */
+:root {
+  --bg:          #F6F8FA;
+  --surface:     #FFFFFF;
+  --surface2:    #F0F2F5;
+  --border:      #D0D7DE;
+  --text:        #24292F;
+  --text-muted:  #57606A;
+  --accent:      #B35A00;
+  --accent-bg:   #FFF3CD;
+  --amber:       #B35A00;
+  --green:       #1A7F37;
+  --green-bg:    #DAFBE1;
+  --red:         #CF222E;
+  --blue:        #0969DA;
+  --blue-bg:     #DDF4FF;
+  --purple:      #8250DF;
+  --purple-bg:   #FBEFFF;
+  --code-bg:     #F6F8FA;
+  --shadow:      0 1px 3px rgba(0,0,0,0.08), 0 0 0 1px var(--border);
+  --mono: ui-monospace, SFMono-Regular, 'Cascadia Code', Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  --radius: 6px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:         #0D1117;
+    --surface:    #161B22;
+    --surface2:   #1C2128;
+    --border:     #30363D;
+    --text:       #E6EDF3;
+    --text-muted: #8B949E;
+    --accent:     #E6A020;
+    --accent-bg:  #2D1F00;
+    --amber:      #E6A020;
+    --green:      #3FB950;
+    --green-bg:   #0B2A17;
+    --red:        #F85149;
+    --blue:       #58A6FF;
+    --blue-bg:    #051D4D;
+    --purple:     #BC8CFF;
+    --purple-bg:  #1D1140;
+    --code-bg:    #161B22;
+    --shadow:     0 1px 3px rgba(0,0,0,0.4), 0 0 0 1px var(--border);
+  }
+}
+:root[data-theme="light"] {
+  --bg:#F6F8FA;--surface:#FFFFFF;--surface2:#F0F2F5;--border:#D0D7DE;
+  --text:#24292F;--text-muted:#57606A;--accent:#B35A00;--accent-bg:#FFF3CD;
+  --amber:#B35A00;--green:#1A7F37;--green-bg:#DAFBE1;--red:#CF222E;
+  --blue:#0969DA;--blue-bg:#DDF4FF;--purple:#8250DF;--purple-bg:#FBEFFF;
+  --code-bg:#F6F8FA;--shadow:0 1px 3px rgba(0,0,0,0.08),0 0 0 1px var(--border);
+}
+:root[data-theme="dark"] {
+  --bg:#0D1117;--surface:#161B22;--surface2:#1C2128;--border:#30363D;
+  --text:#E6EDF3;--text-muted:#8B949E;--accent:#E6A020;--accent-bg:#2D1F00;
+  --amber:#E6A020;--green:#3FB950;--green-bg:#0B2A17;--red:#F85149;
+  --blue:#58A6FF;--blue-bg:#051D4D;--purple:#BC8CFF;--purple-bg:#1D1140;
+  --code-bg:#161B22;--shadow:0 1px 3px rgba(0,0,0,0.4),0 0 0 1px var(--border);
+}
+
+/* ── Reset ────────────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { font-size: 15px; }
+body {
+  font-family: var(--sans);
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.65;
+  min-height: 100vh;
+}
+a { color: var(--blue); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ── Layout ───────────────────────────────────────────────────────────────── */
+.page { max-width: 1080px; margin: 0 auto; padding: 0 24px 80px; }
+
+/* ── Header ───────────────────────────────────────────────────────────────── */
+.site-header {
+  border-bottom: 1px solid var(--border);
+  padding: 32px 0 28px;
+  margin-bottom: 48px;
+}
+.header-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.project-name {
+  font-family: var(--mono);
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.01em;
+}
+.project-name span { color: var(--amber); }
+.project-tag {
+  display: inline-block;
+  margin-top: 6px;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--amber);
+  background: var(--accent-bg);
+  border: 1px solid var(--amber);
+  border-radius: 4px;
+  padding: 2px 8px;
+}
+.project-desc {
+  margin-top: 10px;
+  font-size: 0.9375rem;
+  color: var(--text-muted);
+  max-width: 560px;
+}
+.theme-btn {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  padding: 5px 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.theme-btn:hover { background: var(--surface2); color: var(--text); }
+.stat-strip {
+  display: flex;
+  gap: 20px;
+  margin-top: 20px;
+  flex-wrap: wrap;
+}
+.stat {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+.stat-val { color: var(--text); font-weight: 600; }
+.stat-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--green);
+  flex-shrink: 0;
+}
+
+/* ── Section headings ─────────────────────────────────────────────────────── */
+.section { margin-bottom: 52px; }
+.section-label {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--amber);
+  margin-bottom: 6px;
+}
+.section-title {
+  font-family: var(--mono);
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 4px;
+  text-wrap: balance;
+}
+.section-sub {
+  font-size: 0.875rem;
+  color: var(--text-muted);
+  margin-bottom: 24px;
+}
+.divider {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin-bottom: 24px;
+}
+
+/* ── Architecture diagram ─────────────────────────────────────────────────── */
+.arch-wrap {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 32px 24px;
+  overflow-x: auto;
+}
+.arch-diagram {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  min-width: 640px;
+}
+.arch-row {
+  display: flex;
+  width: 100%;
+  gap: 0;
+}
+.arch-box {
+  flex: 1;
+  border: 1px solid var(--border);
+  padding: 14px 16px;
+  font-family: var(--mono);
+  position: relative;
+}
+.arch-box-name {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text);
+}
+.arch-box-sub {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-top: 3px;
+  line-height: 1.4;
+}
+.arch-app {
+  background: var(--surface2);
+  border-radius: var(--radius) var(--radius) 0 0;
+  text-align: center;
+  border-bottom: none;
+}
+.arch-app .arch-box-name { color: var(--text-muted); font-size: 0.78rem; letter-spacing: 0.06em; text-transform: uppercase; }
+.arch-middle { border-top: none; border-bottom: none; }
+.arch-hsm     { border-color: var(--purple); border-right: none; border-radius: 0; }
+.arch-graph   { border-color: var(--amber);  background: var(--accent-bg); }
+.arch-infer   { border-color: var(--green);  border-left: none; border-radius: 0; }
+.arch-hsm   .arch-box-name { color: var(--purple); }
+.arch-graph .arch-box-name { color: var(--amber); }
+.arch-infer .arch-box-name { color: var(--green); }
+.arch-embedded {
+  background: var(--surface2);
+  border-top: none;
+  border-radius: 0 0 var(--radius) var(--radius);
+  text-align: center;
+}
+.arch-embedded .arch-box-name { font-size: 0.78rem; letter-spacing: 0.04em; }
+.arch-embedded .arch-box-sub  { margin-top: 4px; }
+.arch-arrows {
+  display: flex;
+  width: 100%;
+  justify-content: space-around;
+  padding: 0 80px;
+  font-family: var(--mono);
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  height: 20px;
+  align-items: center;
+}
+
+/* ── File tree ────────────────────────────────────────────────────────────── */
+.tree {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.tree-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0;
+  padding: 5px 16px;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--mono);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+.tree-row:last-child { border-bottom: none; }
+.tree-row:hover { background: var(--surface2); }
+.tree-indent { color: var(--border); white-space: pre; user-select: none; }
+.tree-icon { margin-right: 6px; font-size: 0.75rem; flex-shrink: 0; }
+.tree-name { color: var(--text); font-weight: 500; flex-shrink: 0; }
+.tree-name.dir { color: var(--blue); }
+.tree-name.hdr { color: var(--amber); }
+.tree-name.cpp { color: var(--green); }
+.tree-desc {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  margin-left: 16px;
+  font-family: var(--sans);
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Concept cards ────────────────────────────────────────────────────────── */
+.concepts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+@media (max-width: 700px) { .concepts { grid-template-columns: 1fr; } }
+.concept-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  position: relative;
+  overflow: hidden;
+}
+.concept-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+}
+.concept-card.c-graph::before  { background: var(--amber); }
+.concept-card.c-hsm::before    { background: var(--purple); }
+.concept-card.c-infer::before  { background: var(--green); }
+.concept-name {
+  font-family: var(--mono);
+  font-size: 0.85rem;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+.concept-card.c-graph .concept-name  { color: var(--amber); }
+.concept-card.c-hsm   .concept-name  { color: var(--purple); }
+.concept-card.c-infer .concept-name  { color: var(--green); }
+.concept-desc { font-size: 0.8125rem; color: var(--text-muted); margin-bottom: 14px; }
+.concept-api {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.api-line {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.api-line b { color: var(--text); }
+
+/* ── Examples grid ────────────────────────────────────────────────────────── */
+.examples { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+@media (max-width: 640px) { .examples { grid-template-columns: 1fr; } }
+.ex-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ex-card.ex-featured {
+  grid-column: 1 / -1;
+  border-color: var(--amber);
+  background: var(--accent-bg);
+}
+.ex-header { display: flex; align-items: flex-start; gap: 12px; }
+.ex-num {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 7px;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.ex-featured .ex-num { background: var(--amber); color: #fff; border-color: var(--amber); }
+.ex-name {
+  font-family: var(--mono);
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: var(--text);
+}
+.ex-desc { font-size: 0.8125rem; color: var(--text-muted); line-height: 1.55; }
+.ex-tags { display: flex; gap: 6px; flex-wrap: wrap; }
+.tag {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 20px;
+  border: 1px solid;
+  white-space: nowrap;
+}
+.tag-graph  { color: var(--amber);  background: var(--accent-bg); border-color: var(--amber); }
+.tag-hsm    { color: var(--purple); background: var(--purple-bg); border-color: var(--purple); }
+.tag-infer  { color: var(--green);  background: var(--green-bg);  border-color: var(--green); }
+.tag-embed  { color: var(--blue);   background: var(--blue-bg);   border-color: var(--blue); }
+.ex-topology {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px 10px;
+  overflow-x: auto;
+  white-space: pre;
+  line-height: 1.6;
+}
+.ex-featured .ex-topology { background: var(--bg); }
+
+/* ── Integration section ──────────────────────────────────────────────────── */
+.steps { display: flex; flex-direction: column; gap: 0; }
+.step {
+  display: flex;
+  gap: 20px;
+  padding: 20px 0;
+  border-bottom: 1px solid var(--border);
+}
+.step:last-child { border-bottom: none; }
+.step-num {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--amber);
+  width: 28px;
+  flex-shrink: 0;
+  padding-top: 2px;
+}
+.step-body { flex: 1; min-width: 0; }
+.step-title {
+  font-family: var(--mono);
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 6px;
+}
+.step-desc { font-size: 0.8125rem; color: var(--text-muted); margin-bottom: 10px; }
+pre {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  overflow-x: auto;
+  font-family: var(--mono);
+  font-size: 0.775rem;
+  line-height: 1.6;
+  color: var(--text);
+}
+pre .c  { color: var(--text-muted); }
+pre .kw { color: var(--blue); }
+pre .str{ color: var(--green); }
+pre .cm { color: var(--amber); }
+
+/* ── Model table ──────────────────────────────────────────────────────────── */
+.tbl-wrap { overflow-x: auto; }
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+  font-family: var(--mono);
+}
+th {
+  text-align: left;
+  padding: 8px 12px;
+  border-bottom: 2px solid var(--border);
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: var(--surface2); }
+.td-model { color: var(--amber); font-weight: 600; }
+.td-sz    { color: var(--text); font-variant-numeric: tabular-nums; }
+.td-note  { color: var(--text-muted); font-family: var(--sans); font-size: 0.775rem; }
+.badge {
+  display: inline-block;
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.badge-ok   { background: var(--green-bg);  color: var(--green); }
+.badge-cpu  { background: var(--blue-bg);   color: var(--blue); }
+.badge-fast { background: var(--purple-bg); color: var(--purple); }
+</style>
+
+<div class="page">
+
+  <!-- ── Header ──────────────────────────────────────────────────────────── -->
+  <header class="site-header">
+    <div class="header-top">
+      <div>
+        <div class="project-name">embeddedGraph<span>/cpp</span></div>
+        <div class="project-tag">C++20 · Header-only · Embedded-first</div>
+        <p class="project-desc">
+          A graph-based AI orchestration framework for embedded and automotive systems.
+          Deterministic shell around non-deterministic inference — confidence-gated,
+          timeout-safe, ISO&nbsp;26262 degraded-mode aware.
+        </p>
+      </div>
+      <button class="theme-btn" onclick="toggleTheme()">toggle theme</button>
+    </div>
+    <div class="stat-strip">
+      <div class="stat"><div class="stat-dot"></div> <span class="stat-val">4</span> headers</div>
+      <div class="stat"><div class="stat-dot" style="background:var(--amber)"></div> <span class="stat-val">7</span> examples</div>
+      <div class="stat"><div class="stat-dot" style="background:var(--blue)"></div> <span class="stat-val">C++20</span> standard</div>
+      <div class="stat"><div class="stat-dot" style="background:var(--purple)"></div> <span class="stat-val">zero</span> deps (stub mode)</div>
+      <div class="stat"><div class="stat-dot" style="background:var(--red)"></div> <span class="stat-val">llama.cpp</span> optional</div>
+    </div>
+  </header>
+
+  <!-- ── Architecture ────────────────────────────────────────────────────── -->
+  <section class="section">
+    <div class="section-label">Overview</div>
+    <div class="section-title">Architecture</div>
+    <p class="section-sub">Three independent layers. Use any combination.</p>
+    <div class="arch-wrap">
+      <div class="arch-diagram">
+        <div class="arch-row">
+          <div class="arch-box arch-app">
+            <div class="arch-box-name">Your Application</div>
+            <div class="arch-box-sub">ECU software · diagnostic agent · sensor node · ADAS pipeline</div>
+          </div>
+        </div>
+        <div class="arch-arrows">↓&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;↓&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;↓</div>
+        <div class="arch-row arch-middle">
+          <div class="arch-box arch-hsm">
+            <div class="arch-box-name">lg::hsm</div>
+            <div class="arch-box-sub">Hierarchical state machine.<br>Behavioral contract.<br>Entry/exit · LCA transitions.</div>
+          </div>
+          <div class="arch-box arch-graph">
+            <div class="arch-box-name">lg::Graph&lt;S&gt;</div>
+            <div class="arch-box-sub">Execution engine.<br>Nodes · edges · routers.<br>Cycles · streaming · interrupts.</div>
+          </div>
+          <div class="arch-box arch-infer">
+            <div class="arch-box-name">lg::inference</div>
+            <div class="arch-box-sub">Inference abstraction.<br>StubEngine / LlamaCppEngine.<br>Plug in any SLM.</div>
+          </div>
+        </div>
+        <div class="arch-row">
+          <div class="arch-box arch-embedded">
+            <div class="arch-box-name">lg::embedded — confidence_router · with_timeout · DegradedModeRunner</div>
+            <div class="arch-box-sub">Primitives LangGraph lacks. Probabilistic guard conditions, hard deadlines, capability-layered execution.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── File tree ────────────────────────────────────────────────────────── -->
+  <section class="section">
+    <div class="section-label">Structure</div>
+    <div class="section-title">Files</div>
+    <p class="section-sub">Everything lives in <code style="font-family:var(--mono);font-size:0.85em;background:var(--code-bg);padding:1px 5px;border-radius:3px;border:1px solid var(--border)">include/lg/</code> — header-only, no build step for the library itself.</p>
+    <div class="tree">
+      <div class="tree-row"><span class="tree-icon">📁</span><span class="tree-name dir">cpp/</span></div>
+      <div class="tree-row"><span class="tree-indent">  </span><span class="tree-icon">📁</span><span class="tree-name dir">include/lg/</span></div>
+      <div class="tree-row"><span class="tree-indent">    </span><span class="tree-icon">◈</span><span class="tree-name hdr">graph.hpp</span><span class="tree-desc">Core engine. Graph&lt;S&gt; builder + run loop. Nodes, edges, conditional routing, step streaming, interrupts.</span></div>
+      <div class="tree-row"><span class="tree-indent">    </span><span class="tree-icon">◈</span><span class="tree-name hdr">embedded.hpp</span><span class="tree-desc">Embedded extensions. ConfidenceState concept, confidence_router, with_timeout, DegradedModeRunner.</span></div>
+      <div class="tree-row"><span class="tree-indent">    </span><span class="tree-icon">◈</span><span class="tree-name hdr">hsm.hpp</span><span class="tree-desc">Hierarchical state machine. UML 2.0 LCA transitions, entry/exit propagation, history, event dispatch.</span></div>
+      <div class="tree-row"><span class="tree-indent">    </span><span class="tree-icon">◈</span><span class="tree-name hdr">inference.hpp</span><span class="tree-desc">Inference engine interface. InferenceEngine base, StubEngine, LlamaCppEngine skeleton, make_node() factory.</span></div>
+      <div class="tree-row"><span class="tree-indent">  </span><span class="tree-icon">📁</span><span class="tree-name dir">examples/</span></div>
+      <div class="tree-row"><span class="tree-indent">    </span><span class="tree-icon">▸</span><span class="tree-name cpp">01_simple_chain.cpp</span><span class="tree-desc">Linear pipeline with conditional branch. Baseline pattern.</span></div>
+      <div class="tree-row"><span class="tree-indent">    </span><span class="tree-icon">▸</span><span class="tree-name cpp">02_agent_loop.cpp</span><span class="tree-desc">ReAct agent. Cyclic graph — tool → agent → tool → ... → END.</span></div>
+      <div class="tree-row"><span class="tree-indent">    </span><span class="tree-icon">▸</span><span class="tree-name cpp">03_embedded_sensor.cpp</span><span class="tree-desc">Sensor + confidence routing + DegradedModeRunner.</span></div>
+      <div class="tree-row"><span class="tree-indent">    </span><span class="tree-icon">▸</span><span class="tree-name cpp">04_automotive_diagnostic.cpp</span><span class="tree-desc">Agent loop + confidence gate + degraded mode. Full automotive example.</span></div>
+      <div class="tree-row"><span class="tree-indent">    </span><span class="tree-icon">▸</span><span class="tree-name cpp">05_hsm_ecu_states.cpp</span><span class="tree-desc">HSM managing OPERATING / DEGRADED / SAFE_HALT. Graph runs within HSM states.</span></div>
+      <div class="tree-row"><span class="tree-indent">    </span><span class="tree-icon">▸</span><span class="tree-name cpp">06_llm_diagnostic.cpp</span><span class="tree-desc">InferenceEngine node in diagnostic agent. Swap StubEngine → LlamaCppEngine to go live.</span></div>
+      <div class="tree-row"><span class="tree-indent">    </span><span class="tree-icon">▸</span><span class="tree-name cpp" style="color:var(--amber)">07_llm_brain_agent.cpp</span><span class="tree-desc">LLM decides which tool to call and when to stop. True ReAct orchestration.</span></div>
+      <div class="tree-row"><span class="tree-indent">  </span><span class="tree-icon">⚙</span><span class="tree-name">Makefile</span><span class="tree-desc">g++ -std=c++20. make / make clean. All examples built as separate binaries.</span></div>
+    </div>
+  </section>
+
+  <!-- ── Core concepts ────────────────────────────────────────────────────── -->
+  <section class="section">
+    <div class="section-label">API</div>
+    <div class="section-title">Core concepts</div>
+    <p class="section-sub">Three classes form the full framework. State type S is always a plain user-defined struct.</p>
+    <div class="concepts">
+      <div class="concept-card c-graph">
+        <div class="concept-name">lg::Graph&lt;S&gt;</div>
+        <div class="concept-desc">Execution engine. Templated on your state struct. Nodes mutate state; routers read it. Cycles are first-class.</div>
+        <div class="concept-api">
+          <div class="api-line"><b>.add_node</b>(name, fn)</div>
+          <div class="api-line"><b>.add_edge</b>(from, to)</div>
+          <div class="api-line"><b>.add_conditional_edge</b>(from, router)</div>
+          <div class="api-line"><b>.set_entry</b>(name)</div>
+          <div class="api-line"><b>.on_step</b>(fn) <span style="color:var(--text-muted)">// streaming</span></div>
+          <div class="api-line"><b>.set_interrupt</b>(name, fn)</div>
+          <div class="api-line"><b>.run</b>(state, max_steps)</div>
+        </div>
+      </div>
+      <div class="concept-card c-hsm">
+        <div class="concept-name">lg::hsm::HSM&lt;S&gt;</div>
+        <div class="concept-desc">Hierarchical state machine. LCA-based UML 2.0 transitions. Parent states handle events children don't.</div>
+        <div class="concept-api">
+          <div class="api-line"><b>.add_state</b>({name, parent, on_entry, on_exit, handlers, initial})</div>
+          <div class="api-line"><b>.set_initial</b>(name)</div>
+          <div class="api-line"><b>.on_transition</b>(fn)</div>
+          <div class="api-line"><b>.init</b>(state)</div>
+          <div class="api-line"><b>.dispatch</b>(event, state)</div>
+          <div class="api-line"><b>.current</b>() → string_view</div>
+          <div class="api-line"><b>INTERNAL</b> / <b>UNHANDLED</b> sentinels</div>
+        </div>
+      </div>
+      <div class="concept-card c-infer">
+        <div class="concept-name">lg::inference</div>
+        <div class="concept-desc">Engine abstraction. Swap StubEngine for LlamaCppEngine without touching node logic.</div>
+        <div class="concept-api">
+          <div class="api-line"><b>InferenceEngine</b>::generate(req) → Response</div>
+          <div class="api-line"><b>StubEngine</b>.add_response(kw, text, conf)</div>
+          <div class="api-line"><b>LlamaCppEngine</b>(model_path) <span style="color:var(--text-muted)">// #ifdef guard</span></div>
+          <div class="api-line"><b>make_node</b>&lt;S&gt;(engine, build_prompt, apply)</div>
+          <div class="api-line">Response: {text, <b>confidence</b>, timed_out}</div>
+          <div class="api-line">Request: {system_prompt, user_prompt, max_tokens}</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Examples ─────────────────────────────────────────────────────────── -->
+  <section class="section">
+    <div class="section-label">Examples</div>
+    <div class="section-title">Seven runnable examples</div>
+    <p class="section-sub">Each builds on the previous. Run with <code style="font-family:var(--mono);font-size:0.85em;background:var(--code-bg);padding:1px 5px;border-radius:3px;border:1px solid var(--border)">make && ./build/07_llm_brain_agent</code></p>
+    <div class="examples">
+
+      <div class="ex-card">
+        <div class="ex-header">
+          <div class="ex-num">01</div>
+          <div class="ex-name">simple_chain</div>
+        </div>
+        <div class="ex-desc">Linear pipeline with a conditional branch. Two inputs route to different response nodes based on keyword classification. Baseline LangChain equivalent.</div>
+        <div class="ex-tags">
+          <span class="tag tag-graph">Graph&lt;S&gt;</span>
+          <span class="tag tag-graph">conditional_edge</span>
+          <span class="tag tag-graph">on_step</span>
+        </div>
+        <div class="ex-topology">preprocess → classify → [router]
+                     ├─▶ respond_technical → END
+                     └─▶ respond_general   → END</div>
+      </div>
+
+      <div class="ex-card">
+        <div class="ex-header">
+          <div class="ex-num">02</div>
+          <div class="ex-name">agent_loop</div>
+        </div>
+        <div class="ex-desc">Cyclic ReAct agent. The agent picks a tool, executes it, then loops back to decide the next step. Demonstrates cycles — impossible in a DAG-only framework.</div>
+        <div class="ex-tags">
+          <span class="tag tag-graph">Graph&lt;S&gt;</span>
+          <span class="tag tag-graph">cycles</span>
+          <span class="tag tag-graph">tool dispatch</span>
+        </div>
+        <div class="ex-topology">agent ←─────────────────┐
+  │                     │
+  └─[router]─▶ tool_execute
+               ▶ END (when done)</div>
+      </div>
+
+      <div class="ex-card">
+        <div class="ex-header">
+          <div class="ex-num">03</div>
+          <div class="ex-name">embedded_sensor</div>
+        </div>
+        <div class="ex-desc">Temperature sensor with confidence-gated routing. Model inference runs on each cycle. Below-threshold confidence triggers deterministic rule-based fallback.</div>
+        <div class="ex-tags">
+          <span class="tag tag-embed">confidence_router</span>
+          <span class="tag tag-embed">DegradedModeRunner</span>
+          <span class="tag tag-embed">ConfidenceState</span>
+        </div>
+        <div class="ex-topology">read_sensor → inference → [conf ≥ 0.85?]
+                         ├─▶ act_on_inference → log
+                         └─▶ rule_based       → log</div>
+      </div>
+
+      <div class="ex-card">
+        <div class="ex-header">
+          <div class="ex-num">04</div>
+          <div class="ex-name">automotive_diagnostic</div>
+        </div>
+        <div class="ex-desc">Full automotive agent: loops calling CAN bus, DTC, live PIDs, actuator tests. Confidence grows with evidence. Below 0.85 sends the agent back for more data.</div>
+        <div class="ex-tags">
+          <span class="tag tag-graph">agent loop</span>
+          <span class="tag tag-embed">confidence gate</span>
+          <span class="tag tag-embed">degraded mode</span>
+        </div>
+        <div class="ex-topology">agent ←──────────────────────────┐
+  │                               │
+  ├─▶ tool_execute → inference    │
+  │   [conf ≥ 0.85] ─▶ report    │
+  │   [conf &lt; 0.85] ────────────┘
+  └─▶ report (tools exhausted)</div>
+      </div>
+
+      <div class="ex-card">
+        <div class="ex-header">
+          <div class="ex-num">05</div>
+          <div class="ex-name">hsm_ecu_states</div>
+        </div>
+        <div class="ex-desc">HSM manages coarse system states. Graph runs inside HSM states. critical_fault handled at OPERATING parent level — correct exit/entry propagation through the hierarchy.</div>
+        <div class="ex-tags">
+          <span class="tag tag-hsm">HSM&lt;S&gt;</span>
+          <span class="tag tag-hsm">hierarchy</span>
+          <span class="tag tag-hsm">entry/exit</span>
+          <span class="tag tag-graph">Graph inside HSM</span>
+        </div>
+        <div class="ex-topology">OPERATING (parent)
+  ├── NORMAL    ← runs Graph on entry
+  └── ALERT     ← runs Graph on entry
+DEGRADED         ← rule-based only
+SAFE_HALT        ← ASIL-D safe state</div>
+      </div>
+
+      <div class="ex-card">
+        <div class="ex-header">
+          <div class="ex-num">06</div>
+          <div class="ex-name">llm_diagnostic</div>
+        </div>
+        <div class="ex-desc">InferenceEngine node plugged into the diagnostic agent. StubEngine by default. One-line swap to LlamaCppEngine for real on-device inference with no graph changes.</div>
+        <div class="ex-tags">
+          <span class="tag tag-infer">InferenceEngine</span>
+          <span class="tag tag-infer">make_node()</span>
+          <span class="tag tag-infer">StubEngine</span>
+          <span class="tag tag-embed">confidence gate</span>
+        </div>
+        <div class="ex-topology">agent → tool_execute → inference_node
+               [lg::inference::make_node()]
+               ↓
+         [conf_router] → report | agent</div>
+      </div>
+
+      <div class="ex-card ex-featured">
+        <div class="ex-header">
+          <div class="ex-num">07</div>
+          <div class="ex-name">llm_brain_agent — LLM as the orchestration brain</div>
+        </div>
+        <div class="ex-desc">
+          The model decides <em>which tool to call next</em> and <em>when it has gathered enough evidence</em> — not the programmer. The reason node calls the inference engine, parses a structured decision (ACTION / TOOL / REASONING), and the graph routes accordingly. A confidence gate overrides the model's "finish" decision if confidence is below threshold — the deterministic shell retains veto power.
+        </div>
+        <div class="ex-tags">
+          <span class="tag tag-infer">LLM orchestrates</span>
+          <span class="tag tag-graph">ReAct loop</span>
+          <span class="tag tag-embed">confidence gate</span>
+          <span class="tag tag-infer">structured output</span>
+          <span class="tag tag-infer">make_node()</span>
+        </div>
+        <div class="ex-topology">reason ←───────────────────────────┐
+  │  [LLM decides: ACTION + TOOL]   │
+  ├─▶ tool_execute ─────────────────┘   (loop: model picks tools)
+  └─▶ [confidence gate]
+        conf ≥ 0.85  ─▶ report_fault ─▶ END
+        conf &lt; 0.85  ─▶ reason again     (override model's finish)</div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ── Integration ──────────────────────────────────────────────────────── -->
+  <section class="section">
+    <div class="section-label">Integration</div>
+    <div class="section-title">Wiring llama.cpp</div>
+    <p class="section-sub">Three steps to replace StubEngine with a real on-device model.</p>
+    <div class="steps">
+
+      <div class="step">
+        <div class="step-num">01</div>
+        <div class="step-body">
+          <div class="step-title">Build llama.cpp</div>
+          <div class="step-desc">Clone and build the shared library. CMake handles dependencies.</div>
+          <pre>git clone https://github.com/ggerganov/llama.cpp
+cd llama.cpp
+cmake -B build -DBUILD_SHARED_LIBS=ON
+cmake --build build --config Release -j$(nproc)</pre>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">02</div>
+        <div class="step-body">
+          <div class="step-title">Download a GGUF model</div>
+          <div class="step-desc">Choose based on your target hardware. Q4 quantisation recommended for embedded.</div>
+          <div class="tbl-wrap">
+            <table>
+              <thead>
+                <tr><th>Model</th><th>Size</th><th>RAM</th><th>Target</th><th>Notes</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td class="td-model">Qwen2.5 0.5B Q8</td>
+                  <td class="td-sz">~500 MB</td>
+                  <td class="td-sz">~700 MB</td>
+                  <td><span class="badge badge-fast">fast</span> <span class="badge badge-cpu">CPU</span></td>
+                  <td class="td-note">Smallest. Cortex-A series, automotive SoC</td>
+                </tr>
+                <tr>
+                  <td class="td-model">Phi-3 Mini 3.8B Q4</td>
+                  <td class="td-sz">~2.2 GB</td>
+                  <td class="td-sz">~2.8 GB</td>
+                  <td><span class="badge badge-ok">good</span> <span class="badge badge-cpu">CPU</span></td>
+                  <td class="td-note">Strong reasoning. NVIDIA Jetson / x86 embedded</td>
+                </tr>
+                <tr>
+                  <td class="td-model">Gemma 2 2B Q4</td>
+                  <td class="td-sz">~1.5 GB</td>
+                  <td class="td-sz">~2 GB</td>
+                  <td><span class="badge badge-ok">good</span> <span class="badge badge-cpu">CPU</span></td>
+                  <td class="td-note">Instruction following. Raspberry Pi 5 / AM6x</td>
+                </tr>
+                <tr>
+                  <td class="td-model">TinyLlama 1.1B Q4</td>
+                  <td class="td-sz">~670 MB</td>
+                  <td class="td-sz">~900 MB</td>
+                  <td><span class="badge badge-fast">fast</span> <span class="badge badge-cpu">CPU</span></td>
+                  <td class="td-note">Minimal footprint. Lower reasoning quality</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">03</div>
+        <div class="step-body">
+          <div class="step-title">Swap the engine in your example</div>
+          <div class="step-desc">One-line change in main(). Everything else — graph topology, confidence routing, degraded mode — stays identical.</div>
+          <pre><span class="c">// Before (stub, no model needed):</span>
+lg::inference::StubEngine engine;
+
+<span class="c">// After (real llama.cpp model):</span>
+<span class="cm">#ifdef LG_WITH_LLAMACPP</span>
+lg::inference::LlamaCppEngine engine(<span class="str">"/path/to/model.gguf"</span>);
+<span class="cm">#endif</span>
+
+<span class="c">// Compile with:</span>
+<span class="c">// g++ -std=c++20 -DLG_WITH_LLAMACPP \</span>
+<span class="c">//     -I include -I /path/to/llama.cpp/include \</span>
+<span class="c">//     examples/07_llm_brain_agent.cpp \</span>
+<span class="c">//     -L /path/to/llama.cpp/build -lllama -lpthread \</span>
+<span class="c">//     -o build/07_llm_brain_agent</span></pre>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ── Build ──────────────────────────────────────────────────────────── -->
+  <section class="section">
+    <div class="section-label">Build</div>
+    <div class="section-title">Getting started</div>
+    <p class="section-sub">GCC 13+ or Clang 16+. No dependencies beyond the C++20 standard library.</p>
+    <pre><span class="c"># Build all examples</span>
+cd cpp
+make
+
+<span class="c"># Run a specific example</span>
+./build/07_llm_brain_agent
+
+<span class="c"># Clean</span>
+make clean</pre>
+  </section>
+
+</div>
+
+<script>
+function toggleTheme() {
+  const root = document.documentElement;
+  const current = root.getAttribute('data-theme');
+  const isDark = current === 'dark' ||
+    (!current && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  root.setAttribute('data-theme', isDark ? 'light' : 'dark');
+}
+</script>
