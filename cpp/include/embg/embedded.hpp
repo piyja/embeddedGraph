@@ -8,20 +8,21 @@
 //   - Degraded mode graph selection (capability-layered execution)
 //
 // Timeout implementation uses std::async — suitable for POSIX/desktop targets.
+// In static-allocation mode, the async path is compiled out (no heap).
 // For bare-metal RTOS, replace with: RTOS task + notification + vTaskDelete.
 
 #include "graph.hpp"
 #include <chrono>
-#include <future>
 #include <stdexcept>
-#include <unordered_map>
+
+#if !defined(EMBG_STATIC_ALLOC)
+#include <future>
+#endif
 
 namespace embg::embedded {
 
 // ─── Concepts ─────────────────────────────────────────────────────────────────
 
-// States used with confidence-gated routing must expose last_confidence.
-// The inference node writes to this field; the router reads it.
 template<typename S>
 concept ConfidenceState = embg::GraphState<S> && requires(const S s) {
     { s.last_confidence } -> std::convertible_to<double>;
@@ -29,83 +30,67 @@ concept ConfidenceState = embg::GraphState<S> && requires(const S s) {
 
 // ─── Confidence-gated router ──────────────────────────────────────────────────
 
-// Returns a RouterFn that branches based on state.last_confidence.
-//
-// Usage:
-//   graph.add_conditional_edge("run_inference",
-//       embg::embedded::confidence_router<MyState>(0.85, "act", "fallback"));
-//
-template<ConfidenceState S>
-embg::RouterFn<S> confidence_router(
-    double      threshold,   // minimum confidence to trust the model
-    std::string above,       // next node when confidence >= threshold
-    std::string below        // next node when confidence <  threshold
+template<ConfidenceState S, typename Cfg = embg::Config>
+embg::detail::RouterFn<S, Cfg> confidence_router(
+    double      threshold,
+    const char* above,
+    const char* below
 ) {
-    return [threshold,
-            above = std::move(above),
-            below = std::move(below)](const S& state) -> std::string {
+    return [threshold, above, below](const S& state) -> embg::detail::String<Cfg> {
         return state.last_confidence >= threshold ? above : below;
     };
 }
 
 // ─── Timeout wrapper ──────────────────────────────────────────────────────────
 
-// Wraps a node with a hard execution deadline.
-// If fn() does not complete within deadline, on_timeout() runs instead.
-//
-// IMPORTANT: on POSIX/desktop this uses std::async. The timed-out async task
-// continues running after on_timeout() is called — state is not accessed
-// concurrently here only because on_timeout() receives the same state reference
-// and the future is abandoned (destructor blocks until thread finishes at next
-// scope exit). For production embedded use, replace with RTOS primitives that
-// can cancel the task cleanly.
-//
-template<embg::GraphState S>
-embg::NodeFn<S> with_timeout(
-    embg::NodeFn<S>              fn,
-    std::chrono::milliseconds  deadline,
-    embg::NodeFn<S>              on_timeout
+template<embg::GraphState S, typename Cfg = embg::Config>
+embg::detail::NodeFn<S, Cfg> with_timeout(
+    embg::detail::NodeFn<S, Cfg>              fn,
+    std::chrono::milliseconds                deadline,
+    embg::detail::NodeFn<S, Cfg>              on_timeout
 ) {
+#if defined(EMBG_STATIC_ALLOC)
+    // Static mode: no std::async (avoids thread + heap allocation).
+    // Runs fn inline without a deadline — the node itself must be bounded.
+    // Full RTOS-task-based timeout is Phase 2 of the hardening roadmap.
+    return [fn = std::move(fn), on_timeout = std::move(on_timeout), deadline](S& state) mutable {
+        (void)deadline;  // unused — no async enforcement in static mode
+        fn(state);
+    };
+#else
     return [fn        = std::move(fn),
             deadline,
             on_timeout = std::move(on_timeout)](S& state) mutable {
 
-        // Run fn on a separate thread so we can enforce a deadline.
-        // We copy state in to avoid the shared-reference hazard on timeout.
         S local = state;
         auto fut = std::async(std::launch::async, [&fn, &local] { fn(local); });
 
         if (fut.wait_for(deadline) == std::future_status::timeout) {
-            on_timeout(state);  // deterministic fallback on the caller thread
-            // fut destructor will block until the thread finishes naturally
+            on_timeout(state);
         } else {
-            state = std::move(local);  // commit the result
+            state = std::move(local);
         }
     };
+#endif
 }
 
 // ─── Capability levels ────────────────────────────────────────────────────────
 
-// Models the degraded-mode graph pattern: the system selects which graph to
-// run based on current capability (power, connectivity, thermal state, etc.).
 enum class CapabilityLevel {
-    Full,        // all AI inference available, nominal resources
-    Degraded,    // reduced — rule-based heuristics preferred
-    MinimalSafe  // safety-critical minimum — halt or alert only
+    Full,
+    Degraded,
+    MinimalSafe
 };
 
 // ─── Degraded-mode runner ─────────────────────────────────────────────────────
 
-// Selects one of several registered graphs based on the current capability level
-// and runs it. All graphs must share the same State type.
-//
-// Graphs are stored as non-owning pointers — the caller owns the Graph objects.
-//
-template<embg::GraphState S>
+template<embg::GraphState S, typename Cfg = embg::Config>
 class DegradedModeRunner {
 public:
-    DegradedModeRunner& add_level(CapabilityLevel level, embg::Graph<S>& graph) {
-        levels_.emplace(level, &graph);
+    using LevelMap = embg::detail::Map<CapabilityLevel, embg::Graph<S, Cfg>*, Cfg, Cfg::MaxCapLevels>;
+
+    DegradedModeRunner& add_level(CapabilityLevel level, embg::Graph<S, Cfg>& graph) {
+        levels_.insert_or_assign(level, &graph);
         return *this;
     }
 
@@ -118,7 +103,7 @@ public:
     }
 
 private:
-    std::unordered_map<CapabilityLevel, embg::Graph<S>*> levels_;
+    LevelMap levels_;
 };
 
 } // namespace embg::embedded

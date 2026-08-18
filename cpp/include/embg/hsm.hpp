@@ -17,7 +17,7 @@
 //   3. Enter states from LCA down to target — outermost first
 //   4. Descend into target's initial child if it has one
 
-#include "graph.hpp"  // for GraphState concept
+#include "graph.hpp"  // for GraphState concept + config aliases
 #include <algorithm>
 #include <functional>
 #include <optional>
@@ -31,50 +31,51 @@ namespace embg::hsm {
 
 // ─── Sentinels returned by event handlers ────────────────────────────────────
 
-// Handler handled the event internally — no state transition, no exit/entry.
-inline const std::string INTERNAL  = "__internal__";
-
-// Handler did not handle the event — propagate to parent state.
-inline const std::string UNHANDLED = "__unhandled__";
+inline constexpr const char* INTERNAL  = "__internal__";
+inline constexpr const char* UNHANDLED = "__unhandled__";
 
 // ─── HSM ─────────────────────────────────────────────────────────────────────
 
-template<embg::GraphState S>
+template<embg::GraphState S, typename Cfg = embg::Config>
 class HSM {
 public:
-    using Event      = std::string;
-    // Handler: returns a target state name, INTERNAL, or UNHANDLED
-    using HandlerFn  = std::function<std::string(S&)>;
-    using ActionFn   = std::function<void(S&)>;
-    using ObserveFn  = std::function<void(std::string_view from,
-                                          std::string_view to,
-                                          const S&)>;
+    using StringT   = embg::detail::String<Cfg>;
+    using Event     = StringT;
+    using HandlerFn = std::conditional_t<Cfg::StaticAlloc,
+        embg::Function<StringT(S&), Cfg::FnInlineBytes>,
+        std::function<StringT(S&)>>;
+    using ActionFn  = std::conditional_t<Cfg::StaticAlloc,
+        embg::Function<void(S&), Cfg::FnInlineBytes>,
+        std::function<void(S&)>>;
+    using ObserveFn = std::conditional_t<Cfg::StaticAlloc,
+        embg::Function<void(std::string_view, std::string_view, const S&), Cfg::FnInlineBytes>,
+        std::function<void(std::string_view, std::string_view, const S&)>>;
+
+    using HandlerMap = embg::detail::Map<Event, HandlerFn, Cfg, Cfg::MaxHandlers>;
 
     // ── State descriptor ──────────────────────────────────────────────────────
 
     struct StateConfig {
-        std::string                              name;
-        std::string                              parent   = {};  // "" = root level
-        ActionFn                                 on_entry = nullptr;
-        ActionFn                                 on_exit  = nullptr;
-        std::unordered_map<Event, HandlerFn>     handlers = {};
-        std::string                              initial  = {};  // default child state
+        StringT     name;
+        StringT     parent   = {};
+        ActionFn    on_entry = nullptr;
+        ActionFn    on_exit  = nullptr;
+        HandlerMap  handlers = {};
+        StringT     initial  = {};
     };
 
     // ── Builder ───────────────────────────────────────────────────────────────
 
     HSM& add_state(StateConfig cfg) {
-        states_.insert_or_assign(cfg.name, std::move(cfg));
+        states_.insert_or_assign(std::move(cfg.name), std::move(cfg));
         return *this;
     }
 
-    HSM& set_initial(std::string name) {
+    HSM& set_initial(StringT name) {
         initial_ = std::move(name);
         return *this;
     }
 
-    // Register a transition observer — fires on every state change.
-    // Maps to LangGraph's event streaming at the HSM level.
     HSM& on_transition(ObserveFn fn) {
         observe_ = std::move(fn);
         return *this;
@@ -89,20 +90,17 @@ public:
     }
 
     // ── Event dispatch ────────────────────────────────────────────────────────
-    //
-    // Starts from the innermost active state and propagates up the hierarchy
-    // until the event is handled or the root is reached.
     void dispatch(const Event& event, S& state) {
-        std::string candidate = current_;
+        StringT candidate = current_;
 
         while (!candidate.empty()) {
             auto& cfg = get_state(candidate);
             auto  it  = cfg.handlers.find(event);
 
             if (it != cfg.handlers.end()) {
-                std::string result = it->second(state);
+                StringT result = it->second(state);
 
-                if (result == INTERNAL)  return;   // consumed, no transition
+                if (result == INTERNAL)  return;
 
                 if (result != UNHANDLED) {
                     do_transition(current_, result, state);
@@ -110,74 +108,88 @@ public:
                 }
             }
 
-            candidate = cfg.parent;  // propagate up
+            candidate = cfg.parent;
         }
-        // Silently discard — unhandled events are normal in HSMs
     }
 
     std::string_view current() const { return current_; }
 
 private:
-    std::unordered_map<std::string, StateConfig> states_;
-    std::string                                  current_;
-    std::string                                  initial_;
-    std::optional<ObserveFn>                     observe_;
-    // History: parent state name → last active child before exit
-    std::unordered_map<std::string, std::string> history_;
+    using StateMap = embg::detail::Map<StringT, StateConfig, Cfg, Cfg::MaxHsmStates>;
+    using HistoryMap = embg::detail::Map<StringT, StringT, Cfg, Cfg::MaxHistory>;
+
+    StateMap                    states_;
+    StringT                     current_;
+    StringT                     initial_;
+    std::optional<ObserveFn>    observe_;
+    HistoryMap                  history_;
+
+    // Scratch buffers for transition computation — avoids heap alloc per transition.
+    // Non-reentrant: a single HSM instance must not be called recursively.
+    StaticVector<StringT, Cfg::MaxHsmDepth>  scratch_a_;
+    StaticVector<StringT, Cfg::MaxHsmDepth>  scratch_b_;
+    StaticVector<StringT, Cfg::MaxHsmDepth>  entry_path_;
 
     // ── Internal helpers ──────────────────────────────────────────────────────
 
-    StateConfig& get_state(const std::string& name) {
+    StateConfig& get_state(const StringT& name) {
         auto it = states_.find(name);
         if (it == states_.end())
-            throw std::runtime_error("embg::hsm: unknown state '" + name + "'");
+            throw std::runtime_error("embg::hsm: unknown state '" + std::string(name) + "'");
         return it->second;
     }
 
-    // Ancestors of `name`, ordered leaf-to-root (inclusive of name)
-    std::vector<std::string> ancestors(const std::string& name) {
-        std::vector<std::string> chain;
-        std::string cur = name;
+    // Fill scratch_a_ with ancestors of name, leaf-to-root
+    void ancestors(const StringT& name) {
+        scratch_a_.clear();
+        StringT cur = name;
         while (!cur.empty()) {
-            chain.push_back(cur);
+            scratch_a_.push_back(cur);
             cur = get_state(cur).parent;
         }
-        return chain;
     }
 
-    // Lowest Common Ancestor of two states
-    std::string lca(const std::string& a, const std::string& b) {
-        auto chain_a = ancestors(a);
-        for (const auto& s : ancestors(b)) {
-            if (std::find(chain_a.begin(), chain_a.end(), s) != chain_a.end())
-                return s;
+    // Check if key is in scratch_a_
+    bool in_ancestors(const StringT& key) const {
+        for (const auto& s : scratch_a_)
+            if (s == key) return true;
+        return false;
+    }
+
+    // Lowest Common Ancestor — fills scratch_a_ with ancestors of a,
+    // then walks ancestors of b to find the first match.
+    StringT lca(const StringT& a, const StringT& b) {
+        ancestors(a);
+        scratch_b_.clear();
+        StringT cur = b;
+        while (!cur.empty()) {
+            if (in_ancestors(cur)) return cur;
+            cur = get_state(cur).parent;
         }
-        return {};  // no common ancestor — topology error
+        return {};
     }
 
-    // Enter a state and descend into its initial child chain (if any)
-    void enter_chain(const std::string& name, S& state) {
+    void enter_chain(const StringT& name, S& state) {
         auto& cfg = get_state(name);
         if (cfg.on_entry) cfg.on_entry(state);
         current_ = name;
         if (!cfg.initial.empty())
-            enter_chain(cfg.initial, state);  // descend to default substate
+            enter_chain(cfg.initial, state);
     }
 
     // ── Transition (LCA-based, UML 2.0 compliant) ─────────────────────────────
 
-    void do_transition(const std::string& from, const std::string& to, S& state) {
+    void do_transition(const StringT& from, const StringT& to, S& state) {
         if (observe_) (*observe_)(from, to, state);
 
-        const std::string pivot = lca(from, to);
+        const StringT pivot = lca(from, to);
 
         // Step 1: Exit from source up to (not including) LCA — innermost first
         {
-            std::string cur = from;
+            StringT cur = from;
             while (cur != pivot && !cur.empty()) {
                 auto& cfg = get_state(cur);
-                // Record history before exit so parent can restore it
-                history_[cfg.parent] = cur;
+                history_.insert_or_assign(cfg.parent, cur);
                 if (cfg.on_exit) cfg.on_exit(state);
                 cur = cfg.parent;
             }
@@ -185,16 +197,15 @@ private:
 
         // Step 2: Enter from LCA's child down to target — outermost first
         {
-            // Build path from target to pivot (exclusive)
-            std::vector<std::string> entry_path;
-            std::string cur = to;
+            entry_path_.clear();
+            StringT cur = to;
             while (cur != pivot && !cur.empty()) {
-                entry_path.push_back(cur);
+                entry_path_.push_back(cur);
                 cur = get_state(cur).parent;
             }
-            std::reverse(entry_path.begin(), entry_path.end());  // top-down
+            entry_path_.reverse();
 
-            for (const auto& s : entry_path) {
+            for (const auto& s : entry_path_) {
                 auto& cfg = get_state(s);
                 if (cfg.on_entry) cfg.on_entry(state);
                 current_ = s;

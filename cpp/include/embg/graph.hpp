@@ -1,5 +1,7 @@
 #pragma once
 
+#include "config.hpp"
+#include "storage.hpp"
 #include <concepts>
 #include <functional>
 #include <optional>
@@ -12,77 +14,107 @@
 namespace embg {
 
 // ─── Sentinel node names ──────────────────────────────────────────────────────
+// const char* — no heap, works with both std::string and StaticString via
+// implicit construction / comparison operators.
 
-inline const std::string END   = "__end__";
-inline const std::string START = "__start__";
+inline constexpr const char* END   = "__end__";
+inline constexpr const char* START = "__start__";
 
 // ─── Concepts ─────────────────────────────────────────────────────────────────
 
-// Any copyable, movable type can be graph state.
 template<typename S>
 concept GraphState = std::copyable<S> && std::movable<S>;
 
-// ─── Core type aliases ────────────────────────────────────────────────────────
+// ─── Config-conditional type aliases ──────────────────────────────────────────
+//
+// In default mode these resolve to std::* types (identical to the original API).
+// In static mode they resolve to fixed-capacity types from storage.hpp.
+// The application code is the same either way.
 
-// Node: executes and mutates state. Routing is always separate from execution.
-// This separation is deliberate — it mirrors the LangGraph model and makes
-// the transition table independently readable from node logic.
-template<GraphState S>
-using NodeFn = std::function<void(S&)>;
+namespace detail {
 
-// Router: reads state after a node executes and returns the next node name.
-template<GraphState S>
-using RouterFn = std::function<std::string(const S&)>;
+// String type for names/keys
+template<typename Cfg>
+using String = std::conditional_t<Cfg::StaticAlloc,
+    StaticString<Cfg::MaxStrLen>, std::string>;
 
-// An edge destination is either a fixed name or a runtime routing function.
-template<GraphState S>
-using EdgeDest = std::variant<std::string, RouterFn<S>>;
+// Callable types
+template<GraphState S, typename Cfg>
+using NodeFn = std::conditional_t<Cfg::StaticAlloc,
+    Function<void(S&), Cfg::NodeFnInlineBytes>,
+    std::function<void(S&)>>;
 
-// Optional observation hook: called before each node executes.
-// Useful for logging, tracing, and streaming — maps to LangGraph's event stream.
-template<GraphState S>
-using StepFn = std::function<void(std::string_view node_name, const S& state)>;
+template<GraphState S, typename Cfg>
+using RouterFn = std::conditional_t<Cfg::StaticAlloc,
+    Function<String<Cfg>(const S&), Cfg::FnInlineBytes>,
+    std::function<String<Cfg>(const S&)>>;
+
+template<GraphState S, typename Cfg>
+using StepFn = std::conditional_t<Cfg::StaticAlloc,
+    Function<void(std::string_view, const S&), Cfg::FnInlineBytes>,
+    std::function<void(std::string_view, const S&)>>;
+
+// Edge destination: fixed name or runtime router
+template<GraphState S, typename Cfg>
+using EdgeDest = std::variant<String<Cfg>, RouterFn<S, Cfg>>;
+
+// Map type for node/edge/interrupt storage
+template<typename K, typename V, typename Cfg, std::size_t Cap>
+using Map = std::conditional_t<Cfg::StaticAlloc,
+    StaticMap<K, V, Cap>,
+    std::unordered_map<K, V>>;
+
+} // namespace detail
+
+// ─── Public type aliases (default config) ─────────────────────────────────────
+//
+// These keep backward compatibility: code that writes embg::NodeFn<S> gets
+// the default-config version. Config-aware code uses detail::NodeFn<S, Cfg>.
+
+template<GraphState S> using NodeFn   = detail::NodeFn<S, Config>;
+template<GraphState S> using RouterFn = detail::RouterFn<S, Config>;
+template<GraphState S> using StepFn   = detail::StepFn<S, Config>;
+template<GraphState S> using EdgeDest = detail::EdgeDest<S, Config>;
 
 // ─── Graph ────────────────────────────────────────────────────────────────────
 
-template<GraphState S>
+template<GraphState S, typename Cfg = Config>
 class Graph {
 public:
+    using StringT  = detail::String<Cfg>;
+    using NodeFnT  = detail::NodeFn<S, Cfg>;
+    using RouterT  = detail::RouterFn<S, Cfg>;
+    using StepFnT  = detail::StepFn<S, Cfg>;
+    using EdgeDestT = detail::EdgeDest<S, Cfg>;
+
     // ── Builder API ───────────────────────────────────────────────────────────
 
-    Graph& add_node(std::string name, NodeFn<S> fn) {
-        nodes_.insert_or_assign(name, std::move(fn));
+    Graph& add_node(StringT name, NodeFnT fn) {
+        nodes_.insert_or_assign(std::move(name), std::move(fn));
         return *this;
     }
 
-    // Unconditional edge: from always goes to to.
-    Graph& add_edge(std::string from, std::string to) {
-        edges_.insert_or_assign(from, EdgeDest<S>{ std::move(to) });
+    Graph& add_edge(StringT from, StringT to) {
+        edges_.insert_or_assign(std::move(from), EdgeDestT{ std::move(to) });
         return *this;
     }
 
-    // Conditional edge: router reads state and returns the next node name.
-    Graph& add_conditional_edge(std::string from, RouterFn<S> router) {
-        edges_.insert_or_assign(from, EdgeDest<S>{ std::move(router) });
+    Graph& add_conditional_edge(StringT from, RouterT router) {
+        edges_.insert_or_assign(std::move(from), EdgeDestT{ std::move(router) });
         return *this;
     }
 
-    Graph& set_entry(std::string name) {
+    Graph& set_entry(StringT name) {
         entry_ = std::move(name);
         return *this;
     }
 
-    // Register an observation callback (streaming equivalent).
-    Graph& on_step(StepFn<S> fn) {
+    Graph& on_step(StepFnT fn) {
         step_fn_ = std::move(fn);
         return *this;
     }
 
-    // Register a human-in-the-loop interrupt on a specific node.
-    // The interrupt fires before the node executes; it may modify state
-    // (inject input, approve/reject, etc.) and then returns.
-    // Maps to LangGraph's interrupt() primitive.
-    Graph& set_interrupt(std::string node_name, NodeFn<S> interrupt_fn) {
+    Graph& set_interrupt(StringT node_name, NodeFnT interrupt_fn) {
         interrupts_.insert_or_assign(std::move(node_name), std::move(interrupt_fn));
         return *this;
     }
@@ -93,35 +125,31 @@ public:
         if (entry_.empty())
             throw std::runtime_error("embg::Graph: no entry node set — call set_entry()");
 
-        std::string current = entry_;
+        StringT current = entry_;
 
         for (std::size_t step = 0; step < max_steps; ++step) {
             if (current == END) return;
 
             auto node_it = nodes_.find(current);
             if (node_it == nodes_.end())
-                throw std::runtime_error("embg::Graph: unknown node '" + current + "'");
+                throw std::runtime_error("embg::Graph: unknown node '" + std::string(current) + "'");
 
-            // Observation hook — fires before execution (event streaming)
             if (step_fn_) (*step_fn_)(current, state);
 
-            // Human-in-the-loop interrupt — pause before this node if registered
             auto intr_it = interrupts_.find(current);
             if (intr_it != interrupts_.end()) intr_it->second(state);
 
-            // Execute the node — allowed to freely mutate state
             node_it->second(state);
 
-            // Resolve the next node
             auto edge_it = edges_.find(current);
-            if (edge_it == edges_.end()) return;  // no outgoing edge → implicit END
+            if (edge_it == edges_.end()) return;
 
-            current = std::visit([&state](const auto& dest) -> std::string {
+            current = std::visit([&state](const auto& dest) -> StringT {
                 using T = std::decay_t<decltype(dest)>;
-                if constexpr (std::is_same_v<T, std::string>) {
+                if constexpr (std::is_same_v<T, StringT>) {
                     return dest;
                 } else {
-                    return dest(state);  // router function
+                    return dest(state);
                 }
             }, edge_it->second);
         }
@@ -131,11 +159,15 @@ public:
     }
 
 private:
-    std::unordered_map<std::string, NodeFn<S>>   nodes_;
-    std::unordered_map<std::string, EdgeDest<S>> edges_;
-    std::unordered_map<std::string, NodeFn<S>>   interrupts_;
-    std::string                                  entry_;
-    std::optional<StepFn<S>>                     step_fn_;
+    using NodeMap   = detail::Map<StringT, NodeFnT, Cfg, Cfg::MaxNodes>;
+    using EdgeMap   = detail::Map<StringT, EdgeDestT, Cfg, Cfg::MaxEdges>;
+    using IntrMap   = detail::Map<StringT, NodeFnT, Cfg, Cfg::MaxInterrupts>;
+
+    NodeMap                    nodes_;
+    EdgeMap                    edges_;
+    IntrMap                    interrupts_;
+    StringT                    entry_;
+    std::optional<StepFnT>     step_fn_;
 };
 
 } // namespace embg

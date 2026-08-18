@@ -8,7 +8,7 @@ A deterministic orchestration framework for AI agents on embedded/edge targets. 
 ┌─────────────────────────────────────────────────────────────┐
 │  HSM  (embg::hsm)                                           │
 │  Deterministic behavioral contract                          │
-│  OPERATING ──▶ DEGRADED ──▶ SAFE_HALT                       │
+│  OPERATING ──▶ DEGRADED ──▶ SAFE_HALT                     │
 │                                                             │
 │  ┌─── OPERATING ──────────────────────────────────────┐     │
 │  │  ┌── NORMAL ──┐    ┌── ALERT ──┐                   │     │
@@ -110,7 +110,9 @@ embeddedGraph/
 │   │   ├── graph.hpp          # Core execution graph
 │   │   ├── hsm.hpp            # Hierarchical state machine
 │   │   ├── embedded.hpp       # Confidence router, timeout, degraded mode
-│   │   └── inference.hpp      # LLM engine abstraction + llama.cpp integration
+│   │   ├── inference.hpp      # LLM engine abstraction + llama.cpp integration
+│   │   ├── config.hpp         # Compile-time config (default vs static alloc)
+│   │   └── storage.hpp        # Fixed-capacity primitives (StaticString, StaticMap, Function)
 │   ├── examples/
 │   │   ├── 01_simple_chain.cpp           # Linear pipeline + conditional branch
 │   │   ├── 02_agent_loop.cpp             # ReAct pattern (cycles)
@@ -172,7 +174,7 @@ The current C++ core uses `std::unordered_map`, `std::function`, `std::async`, a
 |---|---|---|
 | **Phase 1** | Functional core on Linux/POSIX | ✅ Done |
 | **Phase 2** | Replace `std::async` with RTOS task primitives | Planned |
-| **Phase 3** | Replace heap allocation with static pools / `std::array` | Planned |
+| **Phase 3** | Replace heap allocation with static pools / `std::array` | ✅ Done |
 | **Phase 4** | Replace exceptions with error codes / `std::expected` | Planned |
 | **Phase 5** | MISRA C++:2023 compliance audit | Planned |
 | **Phase 6** | Bare-metal port (Cortex-M / RISC-V) | Planned |
@@ -221,6 +223,52 @@ make clean    # removes build/
 ```
 
 Requirements: g++ with C++20 support (GCC 10+, Clang 12+).
+
+## Build
+
+```bash
+cd cpp
+make          # builds all 7 examples into build/
+make clean    # removes build/
+```
+
+Requirements: g++ with C++20 support (GCC 10+, Clang 12+).
+
+### Resource-Constrained Mode (Static Allocation)
+
+For devices without heap or with limited memory, compile with `-DEMBG_STATIC_ALLOC`:
+all `std::*` containers are replaced with fixed-capacity preallocated storage —
+no dynamic allocation, no `std::function`, no `std::string` heap.
+
+**The application code is identical in both modes.** The build flag selects the
+storage strategy; `embg::Graph<S>` resolves to the right types automatically.
+
+```bash
+make STATIC=1          # builds all examples into build_static/
+make check             # builds both modes, runs all examples, diffs output — must match
+```
+
+Tune capacities in `cpp/include/embg/config.hpp` (`StaticConfig`):
+
+| Config parameter | Default | Controls |
+|---|---|---|
+| `MaxNodes` | 16 | Max nodes per graph |
+| `MaxEdges` | 16 | Max edges per graph |
+| `MaxHsmStates` | 16 | Max states in HSM |
+| `MaxHsmDepth` | 8 | Max nesting depth (scratch buffer) |
+| `MaxHandlers` | 8 | Max event handlers per HSM state |
+| `MaxStrLen` | 32 | Node/state/event name length |
+| `MaxPromptLen` | 512 | Inference prompt/response length |
+| `FnInlineBytes` | 64 | SBO size for router/step lambdas |
+| `NodeFnInlineBytes` | 256 | SBO size for node lambdas (inference nodes are larger) |
+
+To use a custom config, pass it as the second template argument:
+```cpp
+embg::Graph<MyState, MyCustomConfig> g;
+```
+
+A lambda capture exceeding the SBO size produces a clear `static_assert` at
+compile time telling you to bump `FnInlineBytes` or `NodeFnInlineBytes`.
 
 To enable llama.cpp:
 ```bash
