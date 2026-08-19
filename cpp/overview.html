@@ -510,7 +510,7 @@ tr:hover td { background: var(--surface2); }
       <button class="theme-btn" onclick="toggleTheme()">toggle theme</button>
     </div>
     <div class="stat-strip">
-      <div class="stat"><div class="stat-dot"></div> <span class="stat-val">4</span> headers</div>
+      <div class="stat"><div class="stat-dot"></div> <span class="stat-val">6</span> headers</div>
       <div class="stat"><div class="stat-dot" style="background:var(--amber)"></div> <span class="stat-val">7</span> examples</div>
       <div class="stat"><div class="stat-dot" style="background:var(--blue)"></div> <span class="stat-val">C++20</span> standard</div>
       <div class="stat"><div class="stat-dot" style="background:var(--purple)"></div> <span class="stat-val">zero</span> deps (stub mode)</div>
@@ -534,21 +534,21 @@ tr:hover td { background: var(--surface2); }
         <div class="arch-arrows">↓&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;↓&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;↓</div>
         <div class="arch-row arch-middle">
           <div class="arch-box arch-hsm">
-            <div class="arch-box-name">lg::hsm</div>
+            <div class="arch-box-name">embg::hsm</div>
             <div class="arch-box-sub">Hierarchical state machine.<br>Behavioral contract.<br>Entry/exit · LCA transitions.</div>
           </div>
           <div class="arch-box arch-graph">
-            <div class="arch-box-name">lg::Graph&lt;S&gt;</div>
+            <div class="arch-box-name">embg::Graph&lt;S&gt;</div>
             <div class="arch-box-sub">Execution engine.<br>Nodes · edges · routers.<br>Cycles · streaming · interrupts.</div>
           </div>
           <div class="arch-box arch-infer">
-            <div class="arch-box-name">lg::inference</div>
+            <div class="arch-box-name">embg::inference</div>
             <div class="arch-box-sub">Inference abstraction.<br>StubEngine / LlamaCppEngine.<br>Plug in any SLM.</div>
           </div>
         </div>
         <div class="arch-row">
           <div class="arch-box arch-embedded">
-            <div class="arch-box-name">lg::embedded — confidence_router · with_timeout · DegradedModeRunner</div>
+            <div class="arch-box-name">embg::embedded — confidence_router · with_timeout · DegradedModeRunner</div>
             <div class="arch-box-sub">Primitives LangGraph lacks. Probabilistic guard conditions, hard deadlines, capability-layered execution.</div>
           </div>
         </div>
@@ -568,6 +568,8 @@ tr:hover td { background: var(--surface2); }
       <div class="tree-row"><span class="tree-indent">    </span><span class="tree-icon">◈</span><span class="tree-name hdr">embedded.hpp</span><span class="tree-desc">Embedded extensions. ConfidenceState concept, confidence_router, with_timeout, DegradedModeRunner.</span></div>
       <div class="tree-row"><span class="tree-indent">    </span><span class="tree-icon">◈</span><span class="tree-name hdr">hsm.hpp</span><span class="tree-desc">Hierarchical state machine. UML 2.0 LCA transitions, entry/exit propagation, history, event dispatch.</span></div>
       <div class="tree-row"><span class="tree-indent">    </span><span class="tree-icon">◈</span><span class="tree-name hdr">inference.hpp</span><span class="tree-desc">Inference engine interface. InferenceEngine base, StubEngine, LlamaCppEngine skeleton, make_node() factory.</span></div>
+      <div class="tree-row"><span class="tree-indent">    </span><span class="tree-icon">◈</span><span class="tree-name hdr">config.hpp</span><span class="tree-desc">Compile-time config. DefaultConfig (heap) vs StaticConfig (no heap). EMBG_STATIC_ALLOC macro.</span></div>
+      <div class="tree-row"><span class="tree-indent">    </span><span class="tree-icon">◈</span><span class="tree-name hdr">storage.hpp</span><span class="tree-desc">Fixed-capacity primitives. StaticString, StaticMap, StaticVector, Function (SBO callable).</span></div>
       <div class="tree-row"><span class="tree-indent">  </span><span class="tree-icon">📁</span><span class="tree-name dir">examples/</span></div>
       <div class="tree-row"><span class="tree-indent">    </span><span class="tree-icon">▸</span><span class="tree-name cpp">01_simple_chain.cpp</span><span class="tree-desc">Linear pipeline with conditional branch. Baseline pattern.</span></div>
       <div class="tree-row"><span class="tree-indent">    </span><span class="tree-icon">▸</span><span class="tree-name cpp">02_agent_loop.cpp</span><span class="tree-desc">ReAct agent. Cyclic graph — tool → agent → tool → ... → END.</span></div>
@@ -587,7 +589,7 @@ tr:hover td { background: var(--surface2); }
     <p class="section-sub">Three classes form the full framework. State type S is always a plain user-defined struct.</p>
     <div class="concepts">
       <div class="concept-card c-graph">
-        <div class="concept-name">lg::Graph&lt;S&gt;</div>
+        <div class="concept-name">embg::Graph&lt;S&gt;</div>
         <div class="concept-desc">Execution engine. Templated on your state struct. Nodes mutate state; routers read it. Cycles are first-class.</div>
         <div class="concept-api">
           <div class="api-line"><b>.add_node</b>(name, fn)</div>
@@ -600,7 +602,7 @@ tr:hover td { background: var(--surface2); }
         </div>
       </div>
       <div class="concept-card c-hsm">
-        <div class="concept-name">lg::hsm::HSM&lt;S&gt;</div>
+        <div class="concept-name">embg::hsm::HSM&lt;S&gt;</div>
         <div class="concept-desc">Hierarchical state machine. LCA-based UML 2.0 transitions. Parent states handle events children don't.</div>
         <div class="concept-api">
           <div class="api-line"><b>.add_state</b>({name, parent, on_entry, on_exit, handlers, initial})</div>
@@ -613,7 +615,7 @@ tr:hover td { background: var(--surface2); }
         </div>
       </div>
       <div class="concept-card c-infer">
-        <div class="concept-name">lg::inference</div>
+        <div class="concept-name">embg::inference</div>
         <div class="concept-desc">Engine abstraction. Swap StubEngine for LlamaCppEngine without touching node logic.</div>
         <div class="concept-api">
           <div class="api-line"><b>InferenceEngine</b>::generate(req) → Response</div>
@@ -734,7 +736,7 @@ SAFE_HALT        ← ASIL-D safe state</div>
           <span class="tag tag-embed">confidence gate</span>
         </div>
         <div class="ex-topology">agent → tool_execute → inference_node
-               [lg::inference::make_node()]
+               [embg::inference::make_node()]
                ↓
          [conf_router] → report | agent</div>
       </div>
@@ -835,11 +837,11 @@ cmake --build build --config Release -j$(nproc)</pre>
           <div class="step-title">Swap the engine in your example</div>
           <div class="step-desc">One-line change in main(). Everything else — graph topology, confidence routing, degraded mode — stays identical.</div>
           <pre><span class="c">// Before (stub, no model needed):</span>
-lg::inference::StubEngine engine;
+embg::inference::StubEngine engine;
 
 <span class="c">// After (real llama.cpp model):</span>
 <span class="cm">#ifdef LG_WITH_LLAMACPP</span>
-lg::inference::LlamaCppEngine engine(<span class="str">"/path/to/model.gguf"</span>);
+embg::inference::LlamaCppEngine engine(<span class="str">"/path/to/model.gguf"</span>);
 <span class="cm">#endif</span>
 
 <span class="c">// Compile with:</span>
@@ -854,14 +856,64 @@ lg::inference::LlamaCppEngine engine(<span class="str">"/path/to/model.gguf"</sp
     </div>
   </section>
 
+  <!-- ── Static allocation mode ───────────────────────────────────────────── -->
+  <section class="section">
+    <div class="section-label">Static Mode</div>
+    <div class="section-title">Resource-constrained mode (no heap)</div>
+    <p class="section-sub">
+      Compile with <code style="font-family:var(--mono);font-size:0.85em;background:var(--code-bg);padding:1px 5px;border-radius:3px;border:1px solid var(--border)">-DEMBG_STATIC_ALLOC</code>
+      to replace all <code style="font-family:var(--mono);font-size:0.85em;background:var(--code-bg);padding:1px 5px;border-radius:3px;border:1px solid var(--border)">std::*</code> containers with fixed-capacity preallocated storage.
+      The application code is identical in both modes — the build flag selects the storage strategy.
+    </p>
+    <div class="concepts">
+      <div class="concept-card c-graph">
+        <div class="concept-name">StaticString&lt;N&gt;</div>
+        <div class="concept-desc">Null-terminated fixed buffer. Implicit const char* ctor so add_node("preprocess", ...) compiles unchanged.</div>
+      </div>
+      <div class="concept-card c-hsm">
+        <div class="concept-name">StaticMap&lt;K,V,Cap&gt;</div>
+        <div class="concept-desc">Flat array of pairs, O(N) lookup. N is tiny (≤16). No heap. insert_or_assign, find.</div>
+      </div>
+      <div class="concept-card c-infer">
+        <div class="concept-name">Function&lt;Sig,Bytes&gt;</div>
+        <div class="concept-desc">SBO callable. Stores lambda inline up to N bytes. static_assert with clear message if capture too large.</div>
+      </div>
+    </div>
+    <hr class="divider">
+    <p class="section-sub" style="margin-bottom:16px">Tune capacities in <code style="font-family:var(--mono);font-size:0.85em;background:var(--code-bg);padding:1px 5px;border-radius:3px;border:1px solid var(--border)">config.hpp</code> (StaticConfig):</p>
+    <div class="tbl-wrap">
+      <table>
+        <thead>
+          <tr><th>Parameter</th><th>Default</th><th>Controls</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="td-model">MaxNodes</td><td class="td-sz">16</td><td class="td-note">Max nodes per graph</td></tr>
+          <tr><td class="td-model">MaxEdges</td><td class="td-sz">16</td><td class="td-note">Max edges per graph</td></tr>
+          <tr><td class="td-model">MaxHsmStates</td><td class="td-sz">16</td><td class="td-note">Max states in HSM</td></tr>
+          <tr><td class="td-model">MaxHsmDepth</td><td class="td-sz">8</td><td class="td-note">Max nesting depth (scratch buffer)</td></tr>
+          <tr><td class="td-model">MaxStrLen</td><td class="td-sz">32</td><td class="td-note">Node/state/event name length</td></tr>
+          <tr><td class="td-model">MaxPromptLen</td><td class="td-sz">512</td><td class="td-note">Inference prompt/response length</td></tr>
+          <tr><td class="td-model">FnInlineBytes</td><td class="td-sz">64</td><td class="td-note">SBO size for router/step lambdas</td></tr>
+          <tr><td class="td-model">NodeFnInlineBytes</td><td class="td-sz">256</td><td class="td-note">SBO size for node lambdas (inference nodes larger)</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
   <!-- ── Build ──────────────────────────────────────────────────────────── -->
   <section class="section">
     <div class="section-label">Build</div>
     <div class="section-title">Getting started</div>
     <p class="section-sub">GCC 13+ or Clang 16+. No dependencies beyond the C++20 standard library.</p>
-    <pre><span class="c"># Build all examples</span>
+    <pre><span class="c"># Build all examples (default heap mode)</span>
 cd cpp
 make
+
+<span class="c"># Build in static-allocation mode (no heap)</span>
+make STATIC=1
+
+<span class="c"># Build both modes, run all examples, diff output — must match</span>
+make check
 
 <span class="c"># Run a specific example</span>
 ./build/07_llm_brain_agent

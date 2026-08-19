@@ -467,7 +467,7 @@
   <!-- ── Nav ──────────────────────────────────────────────────────────────── -->
   <nav class="topnav">
     <div class="topnav-inner">
-      <div class="topnav-brand">rust<span>LangGraph</span></div>
+      <div class="topnav-brand">embg<span>Graph</span></div>
       <div class="topnav-links">
         <a href="#vision">Vision</a>
         <a href="#architecture">Architecture</a>
@@ -484,18 +484,18 @@
 
     <!-- ── Hero ───────────────────────────────────────────────────────────── -->
     <header class="hero">
-      <div class="hero-badge"><div class="dot"></div> C++20 &amp; Rust &middot; Embedded-first &middot; Zero-dep core</div>
+      <div class="hero-badge"><div class="dot"></div> C++20 &middot; Embedded-first &middot; Zero-dep core</div>
       <h1>Embedded AI <span>Orchestrator</span></h1>
       <p class="hero-sub">
         A LangGraph-inspired graph-based orchestration framework for embedded and automotive systems.
-        C++20 for the runtime, Rust for safety-critical boundaries. Deterministic shell around
-        non-deterministic inference &mdash; confidence-gated, timeout-safe, ISO&nbsp;26262 degraded-mode aware.
+        C++20 header-only core. Deterministic shell around non-deterministic inference &mdash;
+        confidence-gated, timeout-safe, ISO&nbsp;26262 degraded-mode aware.
       </p>
       <div class="hero-stats">
-        <div class="hero-stat"><div class="dot dot-green"></div> <span class="val">4</span> C++ headers</div>
+        <div class="hero-stat"><div class="dot dot-green"></div> <span class="val">6</span> C++ headers</div>
         <div class="hero-stat"><div class="dot dot-amber"></div> <span class="val">7</span> examples</div>
         <div class="hero-stat"><div class="dot dot-blue"></div> <span class="val">C++20</span> core</div>
-        <div class="hero-stat"><div class="dot dot-amber"></div> <span class="val">Rust</span> safety layer</div>
+        <div class="hero-stat"><div class="dot dot-green"></div> <span class="val">static</span> alloc mode</div>
         <div class="hero-stat"><div class="dot dot-purple"></div> <span class="val">zero</span> deps (stub)</div>
         <div class="hero-stat"><div class="dot dot-red"></div> <span class="val">llama.cpp</span> optional</div>
       </div>
@@ -520,11 +520,11 @@
           </div>
         </div>
         <div class="vision-card v-rust">
-          <div class="vision-name">Rust Safety Layer</div>
+          <div class="vision-name">Static Allocation Mode</div>
           <div class="vision-desc">
-            Memory-safe FFI boundary for safety-critical code. Formal verification of state transitions.
-            Compile-time guarantees on data races. Ideal for the ASIL-C/D safety monitor
-            that validates AI output before it reaches actuators.
+            Compile with <code>-DEMBG_STATIC_ALLOC</code> for zero heap allocation: fixed-capacity
+            StaticString, StaticMap, StaticVector, and SBO Function. Same API, same application code.
+            For MCU / RTOS / safety-critical targets where dynamic allocation is forbidden.
           </div>
         </div>
         <div class="vision-card v-embed">
@@ -554,21 +554,21 @@
           <div class="arch-arrows">&darr;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&darr;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&darr;</div>
           <div class="arch-row arch-middle">
             <div class="arch-box arch-hsm">
-              <div class="arch-box-name">lg::hsm</div>
+              <div class="arch-box-name">embg::hsm</div>
               <div class="arch-box-sub">Hierarchical state machine.<br>Behavioral contract.<br>Entry/exit &middot; LCA transitions.</div>
             </div>
             <div class="arch-box arch-graph">
-              <div class="arch-box-name">lg::Graph&lt;S&gt;</div>
+              <div class="arch-box-name">embg::Graph&lt;S&gt;</div>
               <div class="arch-box-sub">Execution engine.<br>Nodes &middot; edges &middot; routers.<br>Cycles &middot; streaming &middot; interrupts.</div>
             </div>
             <div class="arch-box arch-infer">
-              <div class="arch-box-name">lg::inference</div>
+              <div class="arch-box-name">embg::inference</div>
               <div class="arch-box-sub">Inference abstraction.<br>StubEngine / LlamaCppEngine.<br>Plug in any SLM.</div>
             </div>
           </div>
           <div class="arch-row">
             <div class="arch-box arch-embedded">
-              <div class="arch-box-name">lg::embedded &mdash; confidence_router &middot; with_timeout &middot; DegradedModeRunner</div>
+              <div class="arch-box-name">embg::embedded &mdash; confidence_router &middot; with_timeout &middot; DegradedModeRunner</div>
               <div class="arch-box-sub">Primitives LangGraph lacks. Probabilistic guard conditions, hard deadlines, capability-layered execution.</div>
             </div>
           </div>
@@ -630,10 +630,11 @@
         <div class="tree-row"><span class="tree-indent">    </span><span class="tree-icon">&#x25C8;</span><span class="tree-name hdr">embedded.hpp</span><span class="tree-desc">Embedded extensions. ConfidenceState concept, confidence_router, with_timeout, DegradedModeRunner.</span></div>
         <div class="tree-row"><span class="tree-indent">    </span><span class="tree-icon">&#x25C8;</span><span class="tree-name hdr">hsm.hpp</span><span class="tree-desc">Hierarchical state machine. UML 2.0 LCA transitions, entry/exit propagation, history, event dispatch.</span></div>
         <div class="tree-row"><span class="tree-indent">    </span><span class="tree-icon">&#x25C8;</span><span class="tree-name hdr">inference.hpp</span><span class="tree-desc">Inference engine interface. InferenceEngine base, StubEngine, LlamaCppEngine, make_node() factory.</span></div>
+        <div class="tree-row"><span class="tree-indent">    </span><span class="tree-icon">&#x25C8;</span><span class="tree-name hdr">config.hpp</span><span class="tree-desc">Compile-time config. DefaultConfig (heap) vs StaticConfig (no heap). EMBG_STATIC_ALLOC macro.</span></div>
+        <div class="tree-row"><span class="tree-indent">    </span><span class="tree-icon">&#x25C8;</span><span class="tree-name hdr">storage.hpp</span><span class="tree-desc">Fixed-capacity primitives for static mode. StaticString, StaticMap, StaticVector, Function (SBO callable).</span></div>
         <div class="tree-row"><span class="tree-indent">  </span><span class="tree-icon">&#x1f4c1;</span><span class="tree-name dir">examples/</span><span class="tree-desc">7 runnable examples, each building on the previous</span></div>
         <div class="tree-row"><span class="tree-indent">  </span><span class="tree-icon">&#x2699;</span><span class="tree-name">Makefile</span><span class="tree-desc">g++ -std=c++20. make / make clean.</span></div>
         <div class="tree-row"><span class="tree-indent">  </span><span class="tree-icon">&#x1f4c4;</span><span class="tree-name">overview.html</span><span class="tree-desc">C++ layer overview page</span></div>
-        <div class="tree-row"><span class="tree-indent"></span><span class="tree-icon">&#x1f4c1;</span><span class="tree-name dir">rust/ (planned)</span><span class="tree-desc">Rust safety layer &mdash; FFI bindings, safety monitor, formal verification</span></div>
         <div class="tree-row"><span class="tree-indent"></span><span class="tree-icon">&#x1f4c4;</span><span class="tree-name">knowledge-base.mdx</span><span class="tree-desc">Deep research: LangGraph, FSMs, HSMs, automotive safety, edge AI patterns</span></div>
       </div>
     </section>
@@ -645,7 +646,7 @@
       <p class="section-sub">Four classes form the C++ framework. State type S is always a plain user-defined struct.</p>
       <div class="concepts">
         <div class="concept-card c-graph">
-          <div class="concept-name">lg::Graph&lt;S&gt;</div>
+          <div class="concept-name">embg::Graph&lt;S&gt;</div>
           <div class="concept-desc">Execution engine. Templated on state struct. Nodes mutate state; routers read it. Cycles are first-class.</div>
           <div class="concept-api">
             <div class="api-line"><b>.add_node</b>(name, fn)</div>
@@ -658,7 +659,7 @@
           </div>
         </div>
         <div class="concept-card c-hsm">
-          <div class="concept-name">lg::hsm::HSM&lt;S&gt;</div>
+          <div class="concept-name">embg::hsm::HSM&lt;S&gt;</div>
           <div class="concept-desc">Hierarchical state machine. LCA-based UML 2.0 transitions. Parent states handle events children don't.</div>
           <div class="concept-api">
             <div class="api-line"><b>.add_state</b>({name, parent, on_entry, on_exit, ...})</div>
@@ -671,7 +672,7 @@
           </div>
         </div>
         <div class="concept-card c-infer">
-          <div class="concept-name">lg::inference</div>
+          <div class="concept-name">embg::inference</div>
           <div class="concept-desc">Engine abstraction. Swap StubEngine for LlamaCppEngine without touching node logic.</div>
           <div class="concept-api">
             <div class="api-line"><b>InferenceEngine</b>::generate(req) &rarr; Response</div>
@@ -700,7 +701,7 @@
             Guard condition is a probability threshold, not a boolean.
             If model confidence &lt; 0.85, route to fallback instead of acting on the LLM decision.
           </div>
-          <div class="prim-code"><span class="kw">auto</span> router = lg::embedded::<span class="fn">confidence_router</span>&lt;State&gt;(
+          <div class="prim-code"><span class="kw">auto</span> router = embg::embedded::<span class="fn">confidence_router</span>&lt;State&gt;(
     <span class="str">0.85</span>,          <span class="cm">// threshold</span>
     <span class="str">"act"</span>,           <span class="cm">// above &rarr; trust model</span>
     <span class="str">"fallback"</span>       <span class="cm">// below &rarr; rule-based</span>
@@ -712,7 +713,7 @@
             Every LLM node has a deterministic deadline. If inference exceeds the budget,
             the fallback fires automatically. No hung threads in safety-critical paths.
           </div>
-          <div class="prim-code"><span class="kw">auto</span> safe_node = lg::embedded::<span class="fn">with_timeout</span>&lt;State&gt;(
+          <div class="prim-code"><span class="kw">auto</span> safe_node = embg::embedded::<span class="fn">with_timeout</span>&lt;State&gt;(
     inference_fn,
     <span class="str">std::chrono::milliseconds</span>(<span class="str">50</span>),
     fallback_fn
@@ -724,7 +725,7 @@
             Capability-layered execution. Select which graph to run based on power, thermal,
             connectivity. Full AI &rarr; rule-based &rarr; minimal safe state.
           </div>
-          <div class="prim-code">lg::embedded::<span class="fn">DegradedModeRunner</span>&lt;State&gt; runner;
+          <div class="prim-code">embg::embedded::<span class="fn">DegradedModeRunner</span>&lt;State&gt; runner;
 runner
   .<span class="fn">add_level</span>(Full,        full_graph)
   .<span class="fn">add_level</span>(Degraded,    rule_graph)
@@ -828,7 +829,7 @@ SAFE_HALT        &larr; ASIL-D safe state</div>
             <span class="tag tag-embed">confidence gate</span>
           </div>
           <div class="ex-topology">agent &rarr; tool_execute &rarr; inference_node
-       [lg::inference::Make_node()]
+       [embg::inference::Make_node()]
        &darr;
        [conf_router] &rarr; report | agent</div>
         </div>
@@ -919,11 +920,11 @@ SAFE_HALT        &larr; ASIL-D safe state</div>
           </div>
         </div>
         <div class="safety-card">
-          <div class="safety-card-title">Why Rust for the Safety Layer</div>
+          <div class="safety-card-title">All-C++ Safety Story</div>
           <div class="safety-card-desc">
-            Memory safety without garbage collection. No null pointer dereferences, no data races.
-            Compile-time ownership guarantees. Ideal for the safety monitor that must be formally verifiable.
-            FFI with C++ is well-supported via <code>extern "C"</code> bindings.
+            The current path is all-C++ &mdash; simplicity and independence are the safety story,
+            not language choice. Static allocation mode eliminates heap. The FFI seam remains open
+            should a Rust core ever be revisited via <code>extern "C"</code> bindings.
           </div>
         </div>
       </div>
@@ -939,72 +940,77 @@ SAFE_HALT        &larr; ASIL-D safe state</div>
     <section class="section">
       <div class="section-label">Status</div>
       <div class="section-title">Feature matrix</div>
-      <p class="section-sub">Current implementation status across C++ and planned Rust layers.</p>
+      <p class="section-sub">Current implementation status across the C++ core.</p>
       <div class="tbl-wrap">
         <table>
           <thead>
-            <tr><th>Feature</th><th>C++ Layer</th><th>Rust Layer</th><th>Notes</th></tr>
+            <tr><th>Feature</th><th>Status</th><th>Notes</th></tr>
           </thead>
           <tbody>
             <tr>
               <td class="td-feat">Graph engine (nodes, edges, routing)</td>
               <td><span class="badge badge-done">done</span></td>
-              <td><span class="badge badge-plan">planned</span></td>
               <td class="td-note">Cycles, conditional edges, streaming, interrupts</td>
             </tr>
             <tr>
               <td class="td-feat">Hierarchical state machine</td>
               <td><span class="badge badge-done">done</span></td>
-              <td><span class="badge badge-plan">planned</span></td>
               <td class="td-note">UML 2.0 LCA, entry/exit, history, event propagation</td>
             </tr>
             <tr>
               <td class="td-feat">Inference abstraction</td>
               <td><span class="badge badge-done">done</span></td>
-              <td><span class="badge badge-plan">planned</span></td>
               <td class="td-note">StubEngine + LlamaCppEngine skeleton</td>
             </tr>
             <tr>
               <td class="td-feat">Confidence-gated routing</td>
               <td><span class="badge badge-done">done</span></td>
-              <td><span class="badge badge-plan">planned</span></td>
               <td class="td-note">Probability threshold as guard condition</td>
             </tr>
             <tr>
               <td class="td-feat">Hard timeout wrapper</td>
               <td><span class="badge badge-done">done</span></td>
-              <td><span class="badge badge-plan">planned</span></td>
-              <td class="td-note">std::async for POSIX; RTOS primitives for bare-metal</td>
+              <td class="td-note">std::async for POSIX; compiled out in static mode</td>
             </tr>
             <tr>
               <td class="td-feat">Degraded mode runner</td>
               <td><span class="badge badge-done">done</span></td>
-              <td><span class="badge badge-plan">planned</span></td>
               <td class="td-note">Capability-layered graph selection</td>
             </tr>
             <tr>
-              <td class="td-feat">Safety monitor (FFI boundary)</td>
-              <td><span class="badge badge-plan">planned</span></td>
-              <td><span class="badge badge-plan">planned</span></td>
-              <td class="td-note">Rust validates C++ AI output before actuation</td>
+              <td class="td-feat">Static allocation mode (no heap)</td>
+              <td><span class="badge badge-done">done</span></td>
+              <td class="td-note">-DEMBG_STATIC_ALLOC: StaticString, StaticMap, Function (SBO)</td>
             </tr>
             <tr>
-              <td class="td-feat">Formal verification of transitions</td>
-              <td></td>
+              <td class="td-feat">RTOS task primitives for timeout</td>
               <td><span class="badge badge-plan">planned</span></td>
-              <td class="td-note">Model checking with Kani or Prusti</td>
+              <td class="td-note">Phase 2: replace std::async for bare-metal</td>
+            </tr>
+            <tr>
+              <td class="td-feat">Exceptions &rarr; error codes / std::expected</td>
+              <td><span class="badge badge-plan">planned</span></td>
+              <td class="td-note">Phase 4: no-exception mode for freestanding</td>
             </tr>
             <tr>
               <td class="td-feat">Orthogonal regions</td>
-              <td><span class="badge badge-plan">planned</span></td>
               <td><span class="badge badge-plan">planned</span></td>
               <td class="td-note">True concurrent sub-machines within HSM</td>
             </tr>
             <tr>
               <td class="td-feat">Deferred events</td>
               <td><span class="badge badge-plan">planned</span></td>
-              <td><span class="badge badge-plan">planned</span></td>
               <td class="td-note">Hold events, replay on state change</td>
+            </tr>
+            <tr>
+              <td class="td-feat">MISRA C++:2023 compliance audit</td>
+              <td><span class="badge badge-plan">planned</span></td>
+              <td class="td-note">Phase 5: safety-critical coding guidelines</td>
+            </tr>
+            <tr>
+              <td class="td-feat">Bare-metal port (Cortex-M / RISC-V)</td>
+              <td><span class="badge badge-plan">planned</span></td>
+              <td class="td-note">Phase 6: freestanding, no OS</td>
             </tr>
           </tbody>
         </table>
@@ -1020,11 +1026,10 @@ SAFE_HALT        &larr; ASIL-D safe state</div>
         <div class="rm-item">
           <div class="rm-phase">Phase 1</div>
           <div class="rm-body">
-            <div class="rm-title">C++ Core (current)</div>
+            <div class="rm-title">Functional core on Linux/POSIX <span class="badge badge-done" style="margin-left:8px">done</span></div>
             <div class="rm-desc">
               Header-only graph engine, HSM, inference abstraction, embedded primitives.
-              7 runnable examples demonstrating the full pattern from simple chain to LLM-brain agent.
-              StubEngine for development, LlamaCppEngine skeleton for production.
+              7 runnable examples. StubEngine for dev, LlamaCppEngine skeleton for production.
             </div>
             <div class="rm-tags">
               <span class="rm-tag tag-graph">Graph&lt;S&gt;</span>
@@ -1037,64 +1042,74 @@ SAFE_HALT        &larr; ASIL-D safe state</div>
         <div class="rm-item">
           <div class="rm-phase">Phase 2</div>
           <div class="rm-body">
-            <div class="rm-title">Rust Safety Layer</div>
+            <div class="rm-title">Replace std::async with RTOS task primitives</div>
             <div class="rm-desc">
-              Rust crate providing FFI-safe wrappers around the C++ core. Safety monitor that validates
-              AI output against physical invariants. Compile-time guarantees on data access.
-              Cargo build system with cc crate for C++ interop.
+              with_timeout currently uses std::async (thread + heap). In static mode the async path
+              is compiled out. Full RTOS-task-based timeout enforcement for bare-metal targets is next.
             </div>
             <div class="rm-tags">
-              <span class="rm-tag" style="color:var(--amber);background:var(--amber-bg);border-color:var(--amber-border)">Rust FFI</span>
-              <span class="rm-tag" style="color:var(--red);background:var(--red-bg);border-color:#863034">Safety Monitor</span>
-              <span class="rm-tag" style="color:var(--green);background:var(--green-bg);border-color:var(--green-border)">Invariant Checks</span>
+              <span class="rm-tag tag-embed">with_timeout</span>
+              <span class="rm-tag" style="color:var(--red);background:var(--red-bg);border-color:#863034">RTOS</span>
             </div>
           </div>
         </div>
         <div class="rm-item">
           <div class="rm-phase">Phase 3</div>
           <div class="rm-body">
-            <div class="rm-title">Advanced HSM Features</div>
+            <div class="rm-title">Replace heap allocation with static pools / std::array <span class="badge badge-done" style="margin-left:8px">done</span></div>
             <div class="rm-desc">
-              Orthogonal regions (true concurrent sub-machines). Deferred event queues.
-              Deep/shallow history pseudostates. Run-to-completion semantics with event queue.
-              These are needed for complex multi-sensor embedded systems.
+              Compile with -DEMBG_STATIC_ALLOC to get fixed-capacity storage: StaticString, StaticMap,
+              StaticVector, SBO Function. No dynamic allocation. Application code unchanged in both modes.
+              HSM transition scratch buffers moved to members — zero per-transition heap.
             </div>
             <div class="rm-tags">
-              <span class="rm-tag tag-hsm">Orthogonal</span>
-              <span class="rm-tag tag-hsm">History</span>
-              <span class="rm-tag tag-hsm">Deferred Events</span>
-              <span class="rm-tag tag-hsm">RTC Semantics</span>
+              <span class="rm-tag tag-graph">StaticString</span>
+              <span class="rm-tag tag-hsm">StaticMap</span>
+              <span class="rm-tag tag-infer">Function (SBO)</span>
+              <span class="rm-tag tag-embed">EMBG_STATIC_ALLOC</span>
             </div>
           </div>
         </div>
         <div class="rm-item">
           <div class="rm-phase">Phase 4</div>
           <div class="rm-body">
-            <div class="rm-title">Real Model Integration</div>
+            <div class="rm-title">Replace exceptions with error codes / std::expected</div>
             <div class="rm-desc">
-              End-to-end testing with Phi-3 Mini, Gemma 2B, Qwen 2.5 on target hardware.
-              Benchmark inference latency vs confidence. Tune degraded-mode thresholds.
-              Validate on Raspberry Pi 5, NVIDIA Jetson, automotive SoCs.
+              Current code throws std::runtime_error on logic errors (unknown node, max_steps exceeded).
+              Static mode still throws. Phase 4 adds a no-exception mode for freestishing environments.
             </div>
             <div class="rm-tags">
-              <span class="rm-tag tag-infer">llama.cpp</span>
-              <span class="rm-tag tag-infer">GGUF Models</span>
-              <span class="rm-tag tag-embed">Benchmarking</span>
+              <span class="rm-tag" style="color:var(--red);background:var(--red-bg);border-color:#863034">no-exceptions</span>
+              <span class="rm-tag" style="color:var(--purple);background:var(--purple-bg);border-color:var(--purple-border)">std::expected</span>
             </div>
           </div>
         </div>
         <div class="rm-item">
           <div class="rm-phase">Phase 5</div>
           <div class="rm-body">
-            <div class="rm-title">Formal Verification</div>
+            <div class="rm-title">MISRA C++:2023 compliance audit</div>
             <div class="rm-desc">
-              Model-check HSM transitions with Kani (Rust) or UPPAAL. Prove safety monitor
-              invariants hold under all inputs. Generate certification artifacts for ISO 26262 / SOTIF.
+              Coding guidelines for safety-critical C++. Static analysis, rule compliance,
+              certification artifacts for ISO 26262 / SOTIF.
             </div>
             <div class="rm-tags">
-              <span class="rm-tag" style="color:var(--purple);background:var(--purple-bg);border-color:var(--purple-border)">Kani</span>
-              <span class="rm-tag" style="color:var(--purple);background:var(--purple-bg);border-color:var(--purple-border)">UPPAAL</span>
+              <span class="rm-tag" style="color:var(--red);background:var(--red-bg);border-color:#863034">MISRA</span>
               <span class="rm-tag" style="color:var(--red);background:var(--red-bg);border-color:#863034">ISO 26262</span>
+            </div>
+          </div>
+        </div>
+        <div class="rm-item">
+          <div class="rm-phase">Phase 6</div>
+          <div class="rm-body">
+            <div class="rm-title">Bare-metal port (Cortex-M / RISC-V)</div>
+            <div class="rm-desc">
+              Port to freestanding environments. No OS, no heap, no exceptions.
+              RTOS task primitives for timeout. Static allocation mode required.
+            </div>
+            <div class="rm-tags">
+              <span class="rm-tag" style="color:var(--red);background:var(--red-bg);border-color:#863034">Cortex-M</span>
+              <span class="rm-tag" style="color:var(--red);background:var(--red-bg);border-color:#863034">RISC-V</span>
+              <span class="rm-tag tag-embed">bare-metal</span>
             </div>
           </div>
         </div>
@@ -1183,14 +1198,17 @@ SAFE_HALT        &larr; ASIL-D safe state</div>
       <div class="section-label">Build</div>
       <div class="section-title">Getting started</div>
       <p class="section-sub">GCC 13+ or Clang 16+. No dependencies beyond the C++20 standard library.</p>
-      <pre><span class="c"># Build all C++ examples</span>
+      <pre><span class="c"># Build all C++ examples (default heap mode)</span>
 <span class="kw">cd</span> cpp && make
+
+<span class="c"># Build in static-allocation mode (no heap)</span>
+make STATIC=1
+
+<span class="c"># Build both modes, run all examples, diff output — must match</span>
+make check
 
 <span class="c"># Run the LLM brain agent</span>
 ./build/07_llm_brain_agent
-
-<span class="c"># Run the HSM ECU states example</span>
-./build/05_hsm_ecu_states
 
 <span class="c"># Clean</span>
 make clean</pre>
@@ -1204,7 +1222,7 @@ make clean</pre>
     </div>
 
     <div class="footer">
-      embeddedGraph &mdash; Embedded AI Orchestrator &mdash; C++20 &amp; Rust
+      embeddedGraph &mdash; Embedded AI Orchestrator &mdash; C++20
     </div>
 
   </div>
