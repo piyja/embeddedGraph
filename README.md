@@ -1,8 +1,10 @@
 # embeddedGraph
 
-**Embedded AI Orchestration — C++20, Zero-Dependency Core**
+**Graph-Based Orchestration for Embedded & Edge Systems — C++20, Zero-Dependency Core**
 
-A deterministic orchestration framework for AI agents on embedded/edge targets. Combines a statechart-based Hierarchical State Machine (HSM) with a LangGraph-inspired execution graph, providing the behavioral contract that safety-critical embedded systems require around stochastic AI inference.
+A deterministic orchestration framework for building smart applications on embedded/edge targets. Combines a statechart-based Hierarchical State Machine (HSM) with a LangGraph-inspired execution graph. Use it for AI agents, sensor pipelines, control systems, protocol handlers, or any application that needs structured, routable, stateful execution with a deterministic safety shell.
+
+The graph core is general-purpose — nodes mutate state, edges route. AI inference is an optional plug-in, not a requirement. Build a pure state machine, a pure pipeline, or a full agentic loop with confidence-gated LLM calls. All from the same framework.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -25,27 +27,29 @@ A deterministic orchestration framework for AI agents on embedded/edge targets. 
 
 ## Why
 
-LangGraph (Python) popularized orchestration graphs for LLM agents — but it has no embedded story, no state machines, no safety primitives, no deterministic fallback. embeddedGraph fills that gap:
+LangGraph (Python) popularized orchestration graphs for LLM agents — but it has no embedded story, no state machines, no safety primitives, no deterministic fallback. embeddedGraph fills that gap. And while it's inspired by AI agent patterns, the core is a general-purpose graph + HSM engine that works equally well for non-AI applications: sensor processing, control loops, protocol state machines, workflow engines, or any system that needs structured routing with a deterministic shell.
 
 | Concern | LangGraph | embeddedGraph |
 |---|---|---|
 | Language | Python | C++20 |
 | Target | Cloud / desktop | MCU / SoC / RTOS |
+| Scope | AI agents only | Any graph-based application |
 | Deterministic shell | None | HSM (UML 2.0 statecharts) |
 | Confidence gating | None | `confidence_router` primitive |
 | Degraded mode | None | `DegradedModeRunner` |
 | Timeout enforcement | None | `with_timeout` wrapper |
 | Human-in-the-loop | `interrupt()` | `set_interrupt()` |
+| Static allocation | None | `-DEMBG_STATIC_ALLOC` (no heap) |
 | Dependencies | langchain, pydantic, etc. | stdlib only |
 
 ## Architecture — Two-Layer Pattern
 
-The key insight: **the HSM is the behavioral contract, the Graph is the agentic loop that runs inside a state.**
+The key insight: **the HSM is the behavioral contract, the Graph is the execution loop that runs inside a state.** For AI agents the graph handles tool calling and LLM inference. For non-AI applications the graph handles whatever your domain needs — sensor reads, control decisions, protocol steps, data transformations.
 
 - **HSM** — manages coarse system states (OPERATING / DEGRADED / SAFE_HALT). Handles events like `fault_detected`, `ai_unavailable`, `critical_fault`. Transitions are deterministic, verifiable, and follow UML 2.0 LCA semantics.
-- **Graph** — runs *within* an HSM state. Handles the stochastic part: tool calling, LLM inference, evidence accumulation. Routes via confidence gates.
+- **Graph** — runs *within* an HSM state. For AI agents: tool calling, LLM inference, evidence accumulation, confidence-gated routing. For other applications: any node-edge pipeline with conditional routing, cycles, and streaming.
 
-When the HSM enters SAFE_HALT, all graph execution stops. When it enters DEGRADED, only rule-based graphs run. This is the pattern that makes embedded AI certifiable.
+When the HSM enters SAFE_HALT, all graph execution stops. When it enters DEGRADED, only rule-based graphs run. This is the pattern that makes embedded systems — AI or not — certifiable.
 
 ## C++ Core
 
@@ -101,6 +105,37 @@ Swappable inference engine abstraction:
 - **`LlamaCppEngine`** — real on-device inference via llama.cpp (compile with `-DEMBG_WITH_LLAMACPP`)
 - **`make_node<S>(engine, build_prompt, apply_response)`** — factory that wraps any engine into a `NodeFn<S>`
 
+### `embg::event` — Event-Driven Execution Layer
+
+Reactive, event-driven execution — complements the synchronous Graph and the state-driven HSM. External events drive node execution; nodes emit new events that propagate to multiple subscribers.
+
+- **`EventGraph<S>`** — pub/sub + event queue + reactive processing loop
+- **`on(type, handler)`** — subscribe a handler to an event type (multiple per type = fan-out)
+- **`post(type)`** — inject an external event into the queue
+- **`process(state)`** — drain the queue, dispatching to all matching handlers
+- **`EventEmitter`** — passed to handlers; call `emit.emit("new_event")` to generate events
+
+```cpp
+embg::event::EventGraph<MyState> hub;
+
+hub.on("tick", [](MyState& s, embg::event::EventEmitter& emit) {
+    s.value = read_sensor();
+    emit.emit("sensor_data");
+})
+.on("sensor_data", [](MyState& s, embg::event::EventEmitter&) {  // fan-out 1
+    log_reading(s.value);
+})
+.on("sensor_data", [](MyState& s, embg::event::EventEmitter& emit) {  // fan-out 2
+    if (s.value > s.threshold) emit.emit("alarm");
+})
+.on("alarm", [](MyState& s, embg::event::EventEmitter&) {
+    s.led_on = true;
+});
+
+hub.post("tick");
+hub.process(state);  // drains queue: tick → sensor_data → [alarm] → ...
+```
+
 ## Project Structure
 
 ```
@@ -112,7 +147,8 @@ embeddedGraph/
 │   │   ├── embedded.hpp       # Confidence router, timeout, degraded mode
 │   │   ├── inference.hpp      # LLM engine abstraction + llama.cpp integration
 │   │   ├── config.hpp         # Compile-time config (default vs static alloc)
-│   │   └── storage.hpp        # Fixed-capacity primitives (StaticString, StaticMap, Function)
+│   │   ├── storage.hpp        # Fixed-capacity primitives (StaticString, StaticMap, Function)
+│   │   └── event.hpp          # Event-driven execution layer (pub/sub, fan-out, event queue)
 │   ├── examples/
 │   │   ├── 01_simple_chain.cpp           # Linear pipeline + conditional branch
 │   │   ├── 02_agent_loop.cpp             # ReAct pattern (cycles)
@@ -120,7 +156,9 @@ embeddedGraph/
 │   │   ├── 04_automotive_diagnostic.cpp  # Full agent: tools + inference + degraded mode
 │   │   ├── 05_hsm_ecu_states.cpp         # HSM managing ECU system states
 │   │   ├── 06_llm_diagnostic.cpp         # LLM inference node (StubEngine)
-│   │   └── 07_llm_brain_agent.cpp        # LLM as orchestration brain
+│   │   ├── 07_llm_brain_agent.cpp        # LLM as orchestration brain
+│   │   ├── 08_event_sensor_hub.cpp       # Event-driven sensor hub (non-AI, pub/sub)
+│   │   └── 09_voice_assistant.cpp        # Voice assistant (ASR→NLU→arbitration→agent→TTS)
 │   ├── Makefile
 │   └── overview.html
 ├── knowledge-base.mdx         # Deep research: LangGraph, FSM/HSM, automotive safety
@@ -148,7 +186,29 @@ The two-layer pattern in action. HSM manages OPERATING/DEGRADED/SAFE_HALT. Graph
 Plugs a real `InferenceEngine` (StubEngine by default, LlamaCppEngine optional) into the graph via `make_node()`.
 
 ### 07 — LLM Brain Agent
-LLM decides *which* tool to call next, not the programmer. The model IS the orchestrator. Confidence gate overrides low-confidence "finish" decisions.
+LLM decides *which tool to call next*, not the programmer. The model IS the orchestrator. Confidence gate overrides low-confidence "finish" decisions.
+
+### 08 — Event-Driven Sensor Hub (non-AI)
+Reactive sensor processing with `EventGraph`: external tick events → sensor read → fan-out to logger + threshold checker → alarm → fan-out to LED + notification. Demonstrates event-driven execution, fan-out, and event generation without any AI/LLM.
+
+### 09 — Voice Assistant
+Full voice assistant pipeline: ASR (input) → NLU (intent classification + entity extraction) → Arbitration (confidence gate) → Router (conditional edge to matching agent) → Agent (satisfy request) → TTS (output). No AI/LLM — NLU is keyword-based, agents are rule-based. Swap NLU for an LLM node and agents for tool-calling sub-graphs to go production.
+
+## Use Cases — Beyond AI Agents
+
+The graph + HSM core is general-purpose. The examples use AI agents for demonstration, but the same primitives apply to:
+
+| Domain | Graph usage | HSM usage |
+|---|---|---|
+| **AI agents** | Tool calling, LLM inference, ReAct loops | OPERATING / DEGRADED / SAFE_HALT |
+| **Sensor pipelines** | Read → filter → fuse → actuate | Calibration / running / fault |
+| **Protocol handlers** | Parse → validate → route → respond | Handshake / connected / error / closed |
+| **Control systems** | Sense → compute PID → actuate | Auto / manual / tuning / safe |
+| **Workflow engines** | Step → approve → branch → complete | Draft / review / approved / rejected |
+| **Robotics** | Plan → execute → feedback → replan | Idle / executing / emergency / recovery |
+| **IoT gateways** | Ingest → transform → route → publish | Online / offline / degraded / maintenance |
+
+The pattern is the same: **Graph handles the domain logic (with cycles, routing, streaming), HSM handles the system-level safety contract.** AI is just one domain where the graph happens to call an LLM.
 
 ## LangGraph → embeddedGraph Mapping
 

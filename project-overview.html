@@ -485,15 +485,16 @@
     <!-- ── Hero ───────────────────────────────────────────────────────────── -->
     <header class="hero">
       <div class="hero-badge"><div class="dot"></div> C++20 &middot; Embedded-first &middot; Zero-dep core</div>
-      <h1>Embedded AI <span>Orchestrator</span></h1>
+      <h1>Graph Orchestration for <span>Embedded Systems</span></h1>
       <p class="hero-sub">
-        A LangGraph-inspired graph-based orchestration framework for embedded and automotive systems.
-        C++20 header-only core. Deterministic shell around non-deterministic inference &mdash;
-        confidence-gated, timeout-safe, ISO&nbsp;26262 degraded-mode aware.
+        A deterministic orchestration framework for building smart applications on embedded and edge targets.
+        C++20 header-only core &mdash; graph engine + hierarchical state machine. Use it for AI agents, sensor
+        pipelines, control systems, protocol handlers, or any application that needs structured, routable,
+        stateful execution with a deterministic safety shell.
       </p>
       <div class="hero-stats">
-        <div class="hero-stat"><div class="dot dot-green"></div> <span class="val">6</span> C++ headers</div>
-        <div class="hero-stat"><div class="dot dot-amber"></div> <span class="val">7</span> examples</div>
+        <div class="hero-stat"><div class="dot dot-green"></div> <span class="val">7</span> C++ headers</div>
+        <div class="hero-stat"><div class="dot dot-amber"></div> <span class="val">9</span> examples</div>
         <div class="hero-stat"><div class="dot dot-blue"></div> <span class="val">C++20</span> core</div>
         <div class="hero-stat"><div class="dot dot-green"></div> <span class="val">static</span> alloc mode</div>
         <div class="hero-stat"><div class="dot dot-purple"></div> <span class="val">zero</span> deps (stub)</div>
@@ -508,7 +509,9 @@
       <p class="section-sub">
         Edge devices now run small LLMs (Phi-3, Gemma 2B, Qwen 0.5B) that produce probabilistic outputs.
         Embedded systems need a deterministic orchestrator to manage these non-deterministic components safely.
-        LangGraph solved this for the cloud. This project solves it for the edge.
+        LangGraph solved this for the cloud. This project solves it for the edge &mdash; and the graph + HSM
+        core is general-purpose: any smart application that needs structured routing with a safety shell
+        can use it, AI or not.
       </p>
       <div class="vision-grid">
         <div class="vision-card v-cpp">
@@ -632,6 +635,7 @@
         <div class="tree-row"><span class="tree-indent">    </span><span class="tree-icon">&#x25C8;</span><span class="tree-name hdr">inference.hpp</span><span class="tree-desc">Inference engine interface. InferenceEngine base, StubEngine, LlamaCppEngine, make_node() factory.</span></div>
         <div class="tree-row"><span class="tree-indent">    </span><span class="tree-icon">&#x25C8;</span><span class="tree-name hdr">config.hpp</span><span class="tree-desc">Compile-time config. DefaultConfig (heap) vs StaticConfig (no heap). EMBG_STATIC_ALLOC macro.</span></div>
         <div class="tree-row"><span class="tree-indent">    </span><span class="tree-icon">&#x25C8;</span><span class="tree-name hdr">storage.hpp</span><span class="tree-desc">Fixed-capacity primitives for static mode. StaticString, StaticMap, StaticVector, Function (SBO callable).</span></div>
+        <div class="tree-row"><span class="tree-indent">    </span><span class="tree-icon">&#x25C8;</span><span class="tree-name hdr">event.hpp</span><span class="tree-desc">Event-driven execution layer. EventGraph, EventEmitter, pub/sub, fan-out, event queue.</span></div>
         <div class="tree-row"><span class="tree-indent">  </span><span class="tree-icon">&#x1f4c1;</span><span class="tree-name dir">examples/</span><span class="tree-desc">7 runnable examples, each building on the previous</span></div>
         <div class="tree-row"><span class="tree-indent">  </span><span class="tree-icon">&#x2699;</span><span class="tree-name">Makefile</span><span class="tree-desc">g++ -std=c++20. make / make clean.</span></div>
         <div class="tree-row"><span class="tree-indent">  </span><span class="tree-icon">&#x1f4c4;</span><span class="tree-name">overview.html</span><span class="tree-desc">C++ layer overview page</span></div>
@@ -750,7 +754,7 @@ runner
     <!-- ── Examples ───────────────────────────────────────────────────────── -->
     <section class="section">
       <div class="section-label">Examples</div>
-      <div class="section-title">Seven runnable examples</div>
+      <div class="section-title">Nine runnable examples</div>
       <p class="section-sub">Each builds on the previous. Run with <code>make && ./build/07_llm_brain_agent</code></p>
       <div class="examples">
         <div class="ex-card">
@@ -857,6 +861,43 @@ SAFE_HALT        &larr; ASIL-D safe state</div>
   &vert;&rarr; [confidence gate]
         conf &ge; 0.85  &rarr; report_fault &rarr; END
         conf &lt; 0.85  &rarr; reason again     (override model's finish)</div>
+        </div>
+        <div class="ex-card">
+          <div class="ex-header"><div class="ex-num">08</div><div class="ex-name">event_sensor_hub</div></div>
+          <div class="ex-desc">Event-driven sensor hub &mdash; no AI. External tick events drive sensor reads. "sensor_data" fans out to logger + threshold checker. Alarm fans out to LED + notification. Reactive execution with pub/sub and event generation.</div>
+          <div class="ex-tags">
+            <span class="tag tag-graph">EventGraph</span>
+            <span class="tag tag-graph">pub/sub</span>
+            <span class="tag tag-graph">fan-out</span>
+            <span class="tag tag-embed">non-AI</span>
+          </div>
+          <div class="ex-topology">[external] tick &rarr; read_sensor &rarr; sensor_data
+                                      &boxur;&boxur;&boxur; log_reading       (fan-out)
+                                      &boxur;&boxur;&boxur; check_threshold   (fan-out)
+                                           &vert; if &gt; limit
+                                           &boxur;&boxur;&boxur; alarm
+                                                &boxur;&boxur;&boxur; set_led      (fan-out)
+                                                &boxur;&boxur;&boxur; send_notify
+                                                     &boxur;&boxur;&boxur; notify [external]</div>
+        </div>
+        <div class="ex-card">
+          <div class="ex-header"><div class="ex-num">09</div><div class="ex-name">voice_assistant</div></div>
+          <div class="ex-desc">Full voice assistant pipeline: ASR &rarr; NLU (intent classification) &rarr; Arbitration (confidence gate) &rarr; Router &rarr; Agent &rarr; TTS. No AI/LLM &mdash; keyword-based NLU, rule-based agents. Swap NLU for LLM and agents for tool-calling sub-graphs to go production.</div>
+          <div class="ex-tags">
+            <span class="tag tag-graph">Graph&lt;S&gt;</span>
+            <span class="tag tag-graph">conditional_edge</span>
+            <span class="tag tag-embed">confidence gate</span>
+            <span class="tag tag-embed">arbitration</span>
+          </div>
+          <div class="ex-topology">asr &rarr; nlu &rarr; arbitration &rarr; [router]
+                                 &boxur;&boxur;&boxur; clarify &rarr; END
+                                 &boxur;&boxur;&boxur; greeting_agent &rarr; tts &rarr; END
+                                 &boxur;&boxur;&boxur; time_agent     &rarr; tts &rarr; END
+                                 &boxur;&boxur;&boxur; weather_agent  &rarr; tts &rarr; END
+                                 &boxur;&boxur;&boxur; music_agent    &rarr; tts &rarr; END
+                                 &boxur;&boxur;&boxur; joke_agent     &rarr; tts &rarr; END
+                                 &boxur;&boxur;&boxur; help_agent     &rarr; tts &rarr; END
+                                 &boxur;&boxur;&boxur; fallback_agent &rarr; tts &rarr; END</div>
         </div>
       </div>
     </section>
@@ -981,6 +1022,11 @@ SAFE_HALT        &larr; ASIL-D safe state</div>
               <td class="td-feat">Static allocation mode (no heap)</td>
               <td><span class="badge badge-done">done</span></td>
               <td class="td-note">-DEMBG_STATIC_ALLOC: StaticString, StaticMap, Function (SBO)</td>
+            </tr>
+            <tr>
+              <td class="td-feat">Event-driven execution (pub/sub, fan-out)</td>
+              <td><span class="badge badge-done">done</span></td>
+              <td class="td-note">embg::event::EventGraph — reactive, event-driven node execution</td>
             </tr>
             <tr>
               <td class="td-feat">RTOS task primitives for timeout</td>

@@ -510,8 +510,8 @@ tr:hover td { background: var(--surface2); }
       <button class="theme-btn" onclick="toggleTheme()">toggle theme</button>
     </div>
     <div class="stat-strip">
-      <div class="stat"><div class="stat-dot"></div> <span class="stat-val">6</span> headers</div>
-      <div class="stat"><div class="stat-dot" style="background:var(--amber)"></div> <span class="stat-val">7</span> examples</div>
+      <div class="stat"><div class="stat-dot"></div> <span class="stat-val">7</span> headers</div>
+      <div class="stat"><div class="stat-dot" style="background:var(--amber)"></div> <span class="stat-val">9</span> examples</div>
       <div class="stat"><div class="stat-dot" style="background:var(--blue)"></div> <span class="stat-val">C++20</span> standard</div>
       <div class="stat"><div class="stat-dot" style="background:var(--purple)"></div> <span class="stat-val">zero</span> deps (stub mode)</div>
       <div class="stat"><div class="stat-dot" style="background:var(--red)"></div> <span class="stat-val">llama.cpp</span> optional</div>
@@ -570,6 +570,7 @@ tr:hover td { background: var(--surface2); }
       <div class="tree-row"><span class="tree-indent">    </span><span class="tree-icon">◈</span><span class="tree-name hdr">inference.hpp</span><span class="tree-desc">Inference engine interface. InferenceEngine base, StubEngine, LlamaCppEngine skeleton, make_node() factory.</span></div>
       <div class="tree-row"><span class="tree-indent">    </span><span class="tree-icon">◈</span><span class="tree-name hdr">config.hpp</span><span class="tree-desc">Compile-time config. DefaultConfig (heap) vs StaticConfig (no heap). EMBG_STATIC_ALLOC macro.</span></div>
       <div class="tree-row"><span class="tree-indent">    </span><span class="tree-icon">◈</span><span class="tree-name hdr">storage.hpp</span><span class="tree-desc">Fixed-capacity primitives. StaticString, StaticMap, StaticVector, Function (SBO callable).</span></div>
+      <div class="tree-row"><span class="tree-indent">    </span><span class="tree-icon">◈</span><span class="tree-name hdr">event.hpp</span><span class="tree-desc">Event-driven execution layer. EventGraph, EventEmitter, pub/sub, fan-out, event queue.</span></div>
       <div class="tree-row"><span class="tree-indent">  </span><span class="tree-icon">📁</span><span class="tree-name dir">examples/</span></div>
       <div class="tree-row"><span class="tree-indent">    </span><span class="tree-icon">▸</span><span class="tree-name cpp">01_simple_chain.cpp</span><span class="tree-desc">Linear pipeline with conditional branch. Baseline pattern.</span></div>
       <div class="tree-row"><span class="tree-indent">    </span><span class="tree-icon">▸</span><span class="tree-name cpp">02_agent_loop.cpp</span><span class="tree-desc">ReAct agent. Cyclic graph — tool → agent → tool → ... → END.</span></div>
@@ -632,7 +633,7 @@ tr:hover td { background: var(--surface2); }
   <!-- ── Examples ─────────────────────────────────────────────────────────── -->
   <section class="section">
     <div class="section-label">Examples</div>
-    <div class="section-title">Seven runnable examples</div>
+    <div class="section-title">Nine runnable examples</div>
     <p class="section-sub">Each builds on the previous. Run with <code style="font-family:var(--mono);font-size:0.85em;background:var(--code-bg);padding:1px 5px;border-radius:3px;border:1px solid var(--border)">make && ./build/07_llm_brain_agent</code></p>
     <div class="examples">
 
@@ -762,6 +763,51 @@ SAFE_HALT        ← ASIL-D safe state</div>
   └─▶ [confidence gate]
         conf ≥ 0.85  ─▶ report_fault ─▶ END
         conf &lt; 0.85  ─▶ reason again     (override model's finish)</div>
+      </div>
+
+      <div class="ex-card">
+        <div class="ex-header">
+          <div class="ex-num">08</div>
+          <div class="ex-name">event_sensor_hub</div>
+        </div>
+        <div class="ex-desc">Event-driven sensor hub — no AI. External tick events drive sensor reads. "sensor_data" fans out to logger + threshold checker. Alarm fans out to LED + notification. Demonstrates reactive execution, fan-out, and event generation.</div>
+        <div class="ex-tags">
+          <span class="tag tag-graph">EventGraph</span>
+          <span class="tag tag-graph">pub/sub</span>
+          <span class="tag tag-graph">fan-out</span>
+          <span class="tag tag-embed">non-AI</span>
+        </div>
+        <div class="ex-topology">[external] tick → read_sensor → sensor_data
+                                      ├─▶ log_reading       (fan-out)
+                                      └─▶ check_threshold   (fan-out)
+                                           │ if > limit
+                                           └─▶ alarm
+                                                ├─▶ set_led      (fan-out)
+                                                └─▶ send_notify
+                                                     └─▶ notify [external]</div>
+      </div>
+
+      <div class="ex-card">
+        <div class="ex-header">
+          <div class="ex-num">09</div>
+          <div class="ex-name">voice_assistant</div>
+        </div>
+        <div class="ex-desc">Full voice assistant pipeline: ASR → NLU (intent classification) → Arbitration (confidence gate) → Router → Agent → TTS. No AI/LLM — keyword-based NLU, rule-based agents. Swap NLU for LLM and agents for tool-calling sub-graphs to go production.</div>
+        <div class="ex-tags">
+          <span class="tag tag-graph">Graph&lt;S&gt;</span>
+          <span class="tag tag-graph">conditional_edge</span>
+          <span class="tag tag-embed">confidence gate</span>
+          <span class="tag tag-embed">arbitration</span>
+        </div>
+        <div class="ex-topology">asr → nlu → arbitration → [router]
+                                 ├─▶ clarify ──────────────▶ END
+                                 ├─▶ greeting_agent → tts → END
+                                 ├─▶ time_agent     → tts → END
+                                 ├─▶ weather_agent  → tts → END
+                                 ├─▶ music_agent    → tts → END
+                                 ├─▶ joke_agent     → tts → END
+                                 ├─▶ help_agent     → tts → END
+                                 └─▶ fallback_agent → tts → END</div>
       </div>
 
     </div>

@@ -41,6 +41,9 @@ struct DefaultConfig {
     static constexpr std::size_t MaxInferenceResp = 8;
     static constexpr std::size_t FnInlineBytes    = 64;
     static constexpr std::size_t NodeFnInlineBytes = 256;
+    // EventGraph capacities
+    static constexpr std::size_t MaxEvents        = 32;  // max pending events in queue
+    static constexpr std::size_t MaxSubscriptions = 32;  // total event subscriptions
 };
 
 // ─── Static: no dynamic allocation, fixed-capacity storage ────────────────────
@@ -73,6 +76,10 @@ struct StaticConfig {
     static constexpr std::size_t FnInlineBytes = 64;
     // Larger SBO for node functions (inference nodes capture sub-callables)
     static constexpr std::size_t NodeFnInlineBytes = 256;
+
+    // EventGraph capacities
+    static constexpr std::size_t MaxEvents        = 32;  // max pending events in queue
+    static constexpr std::size_t MaxSubscriptions = 32;  // total event subscriptions
 };
 
 // ─── Active config selection ──────────────────────────────────────────────────
