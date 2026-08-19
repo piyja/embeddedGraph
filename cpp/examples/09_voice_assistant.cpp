@@ -8,23 +8,24 @@
 //
 // Pipeline:
 //
-//   asr → nlu → arbitration → [router on decision]
-//                               ├──→ clarify ──────────────────────→ END
-//                               ├──→ greeting_agent  → tts → END
-//                               ├──→ time_agent      → tts → END
-//                               ├──→ weather_agent   → tts → END
-//                               ├──→ music_agent     → tts → END
-//                               ├──→ joke_agent      → tts → END
-//                               ├──→ help_agent      → tts → END
-//                               └──→ fallback_agent  → tts → END
+//   asr → nlu → arbitration ──[router on s.intent]──→ <agent> → tts → END
+//                          └─(low conf)──→ clarify ─────────→ tts → END
 //
 // Each stage's responsibility:
 //   asr        — receives the speech-to-text string (simulated input)
 //   nlu        — intent classification + entity extraction (string matching)
 //   arbitration— confidence gate: high → handle, low → ask for clarification
-//   router     — conditional edge: routes to the agent matching the intent
+//   router     — conditional edge: returns s.intent, dispatching to the
+//                agent node whose name matches the intent
 //   agent_*    — satisfies the request, writes response text
 //   tts        — "speaks" the response (prints to stdout for now)
+//
+// Design note — data-driven agent fleet:
+//   The AGENTS table below is the single source of truth for capabilities.
+//   Node name == intent name, so the router needs no per-intent branch.
+//   To add a capability: add a keyword rule to INTENT_RULES, add an agent
+//   function, add one row to AGENTS. No edge wiring is required — the
+//   builder loops over AGENTS to register nodes and the agent→tts edges.
 
 #include <embg/graph.hpp>
 #include <embg/embedded.hpp>
@@ -144,144 +145,188 @@ static void classify_intent(const std::string& text, std::string& intent,
     entity     = {};
 }
 
+// ─── Node implementations ─────────────────────────────────────────────────────
+// Kept as free functions so the graph builder reads as pure topology — the
+// "what does each stage do" story is separated from the "how are they wired"
+// story. Each function preserves the exact stdout of the original inline
+// lambdas.
+
+static void asr_node(VoiceState& s) {
+    // In production, this node would interface with Porcupine, Whisper,
+    // or an audio front-end. Here we just pass the input through.
+    s.turn++;
+    std::cout << "  [ASR]  heard: \"" << s.asr_text << "\"\n";
+}
+
+static void nlu_node(VoiceState& s) {
+    classify_intent(s.asr_text, s.intent, s.last_confidence, s.entity);
+    std::cout << "  [NLU]  intent=" << s.intent
+              << "  conf=" << s.last_confidence;
+    if (!s.entity.empty())
+        std::cout << "  entity=\"" << s.entity << "\"";
+    std::cout << "\n";
+}
+
+// Arbitration: confidence gate — the "safety" layer that prevents acting on
+// uncertain understanding. High confidence → handle; low → ask to rephrase.
+static void arbitration_node(VoiceState& s) {
+    if (s.last_confidence >= 0.70) {
+        s.decision = "handle";
+        std::cout << "  [ARB]  confidence " << s.last_confidence
+                  << " ≥ 0.70 → handling\n";
+    } else {
+        s.decision = "clarify";
+        std::cout << "  [ARB]  confidence " << s.last_confidence
+                  << " < 0.70 → needs clarification\n";
+    }
+}
+
+static void clarify_node(VoiceState& s) {
+    s.response = "I'm not sure I understood. Could you rephrase that?";
+    std::cout << "  [CLAR] " << s.response << "\n";
+}
+
+static void tts_node(VoiceState& s) {
+    // In production, this would feed a text-to-speech engine (Piper, espeak,
+    // Coqui TTS). For now, we print to stdout.
+    s.spoken = s.response;
+    std::cout << "  [TTS]  ♪ \"" << s.spoken << "\"\n";
+}
+
+// ─── Agents ───────────────────────────────────────────────────────────────────
+// Each agent is keyed by its intent name — the arbitration router returns
+// s.intent, selecting the matching agent node. See AGENTS below.
+
+static void greeting_agent(VoiceState& s) {
+    s.response = "Hello! How can I help you today?";
+    std::cout << "  [AGT]  greeting agent activated\n";
+}
+
+static void time_agent(VoiceState& s) {
+    auto now = std::chrono::system_clock::now();
+    std::time_t t = std::chrono::system_clock::to_time_t(now);
+    char buf[64];
+    std::strftime(buf, sizeof(buf), "%I:%M %p", std::localtime(&t));
+    s.response = std::string("The current time is ") + buf + ".";
+    std::cout << "  [AGT]  time agent activated\n";
+}
+
+static void weather_agent(VoiceState& s) {
+    // Simulated weather — in production this would call a weather API.
+    std::string location = s.entity.empty() ? "your location" : s.entity;
+    s.response = "The weather in " + location +
+                 " is 22 degrees Celsius, partly cloudy, with light wind.";
+    std::cout << "  [AGT]  weather agent activated (location=" << location << ")\n";
+}
+
+static void music_agent(VoiceState& s) {
+    std::string track = s.entity.empty() ? "a random playlist" : s.entity;
+    s.response = "Now playing " + track + ".";
+    std::cout << "  [AGT]  music agent activated (track=" << track << ")\n";
+}
+
+static void joke_agent(VoiceState& s) {
+    static const char* jokes[] = {
+        "Why don't programmers like nature? It has too many bugs.",
+        "I told my computer I needed a break, and it said 'No problem — I'll go to sleep.'",
+        "Why did the developer go broke? Because he used up all his cache.",
+        "There are 10 types of people: those who understand binary and those who don't.",
+    };
+    static int idx = 0;
+    s.response = std::string(jokes[idx++ % 4]);
+    std::cout << "  [AGT]  joke agent activated\n";
+}
+
+static void help_agent(VoiceState& s) {
+    s.response = "I can help with: greetings, telling the time, "
+                 "weather forecasts, playing music, and telling jokes. "
+                 "Just say things like 'what time is it' or 'play some music'.";
+    std::cout << "  [AGT]  help agent activated\n";
+}
+
+// Fallback agent — intent "unknown" routes here (only reachable when the
+// classifier returns "unknown" with confidence ≥ 0.70; in practice the
+// keyword rules assign 0.20 to unknown, so this is a safety net).
+static void fallback_agent(VoiceState& s) {
+    s.response = "I heard you say: \"" + s.asr_text +
+                 "\", but I'm not sure how to help with that.";
+    std::cout << "  [AGT]  fallback agent activated\n";
+}
+
+// ─── Agent fleet — single source of truth ─────────────────────────────────────
+// The node name IS the intent name. The router (see make_voice_assistant)
+// simply returns s.intent, so dispatch is automatic — no per-intent branch.
+//
+// To add a capability:
+//   1. Add a keyword rule to INTENT_RULES (name must match the row below).
+//   2. Add an agent function above.
+//   3. Add a row here. That's it — no edge wiring required.
+
+struct AgentSpec {
+    const char* name;
+    void (*run)(VoiceState&);
+};
+
+static const AgentSpec AGENTS[] = {
+    { "greeting", greeting_agent },
+    { "time",     time_agent     },
+    { "weather",  weather_agent  },
+    { "music",    music_agent    },
+    { "joke",     joke_agent     },
+    { "help",     help_agent     },
+    { "unknown",  fallback_agent },
+};
+
+static constexpr int NUM_AGENTS = sizeof(AGENTS) / sizeof(AGENTS[0]);
+
 // ─── Build the voice assistant graph ──────────────────────────────────────────
+//
+// The builder is intentionally declarative: Nodes, Edges, Router, and Entry
+// are each their own labeled section so the topology can be read at a glance.
+// Agent nodes and their agent→tts edges are registered by looping over the
+// AGENTS table — keeping the wiring in lockstep with the fleet definition.
 
 static embg::Graph<VoiceState> make_voice_assistant() {
     embg::Graph<VoiceState> g;
 
-    g
-        // ── ASR: receives speech-to-text output ─────────────────────────────
-        // In production, this node would interface with Porcupine, Whisper,
-        // or an audio front-end. Here we just pass the input through.
-        .add_node("asr", [](VoiceState& s) {
-            s.turn++;
-            std::cout << "  [ASR]  heard: \"" << s.asr_text << "\"\n";
-        })
-        // ── NLU: intent classification + entity extraction ───────────────────
-        .add_node("nlu", [](VoiceState& s) {
-            classify_intent(s.asr_text, s.intent, s.last_confidence, s.entity);
-            std::cout << "  [NLU]  intent=" << s.intent
-                      << "  conf=" << s.last_confidence;
-            if (!s.entity.empty())
-                std::cout << "  entity=\"" << s.entity << "\"";
-            std::cout << "\n";
-        })
-        .add_edge("asr", "nlu")
+    // ── Nodes ─────────────────────────────────────────────────────────────────
+    g.add_node("asr",         asr_node);
+    g.add_node("nlu",         nlu_node);
+    g.add_node("arbitration", arbitration_node);
+    g.add_node("clarify",     clarify_node);
+    g.add_node("tts",         tts_node);
 
-        // ── Arbitration: confidence gate ─────────────────────────────────────
-        // High confidence → handle. Low confidence → ask for clarification.
-        // This is the "safety" layer — prevents acting on uncertain understanding.
-        .add_node("arbitration", [](VoiceState& s) {
-            if (s.last_confidence >= 0.70) {
-                s.decision = "handle";
-                std::cout << "  [ARB]  confidence " << s.last_confidence
-                          << " ≥ 0.70 → handling\n";
-            } else {
-                s.decision = "clarify";
-                std::cout << "  [ARB]  confidence " << s.last_confidence
-                          << " < 0.70 → needs clarification\n";
-            }
-        })
+    for (int i = 0; i < NUM_AGENTS; ++i)
+        g.add_node(AGENTS[i].name, AGENTS[i].run);
 
-        // ── Edge: nlu → arbitration ───────────────────────────────────────────
-        .add_edge("nlu", "arbitration")
+    // ── Edges (declared together so the topology is visible at a glance) ────
+    //
+    //   asr → nlu → arbitration ──┐
+    //                            │
+    //   clarify ─────────────────┴──→ tts ──→ END
+    //   <agent> ──────────────────────→ tts (registered per-agent below)
+    g.add_edge("asr",     "nlu");
+    g.add_edge("nlu",     "arbitration");
+    g.add_edge("clarify", "tts");
+    g.add_edge("tts",     embg::END);
 
-        // ── Router 1: route based on arbitration decision ─────────────────────
-        // If "handle" → route to the agent matching the intent.
-        // If "clarify" → go to the clarify node.
-        .add_conditional_edge("arbitration", [](const VoiceState& s) -> std::string {
-            if (s.decision == "clarify") return "clarify";
-            return s.intent;   // routes to the agent node named after the intent
-        })
+    for (int i = 0; i < NUM_AGENTS; ++i)
+        g.add_edge(AGENTS[i].name, "tts");
 
-        // ── Clarify node: asks the user to rephrase ───────────────────────────
-        .add_node("clarify", [](VoiceState& s) {
-            s.response = "I'm not sure I understood. Could you rephrase that?";
-            std::cout << "  [CLAR] " << s.response << "\n";
-        })
-        .add_edge("clarify", "tts")
+    // ── Router: arbitration → {clarify | intent agent} ───────────────────────
+    // Low confidence asks for clarification; otherwise dispatch on s.intent,
+    // which matches an AGENTS row name.
+    g.add_conditional_edge("arbitration", [](const VoiceState& s) -> std::string {
+        if (s.decision == "clarify") return "clarify";
+        return s.intent;
+    });
 
-        // ── Agents: one per intent ────────────────────────────────────────────
-        // Each agent "satisfies" the request and writes a response.
-
-        .add_node("greeting", [](VoiceState& s) {
-            s.response = "Hello! How can I help you today?";
-            std::cout << "  [AGT]  greeting agent activated\n";
-        })
-        .add_edge("greeting", "tts")
-
-        .add_node("time", [](VoiceState& s) {
-            auto now = std::chrono::system_clock::now();
-            std::time_t t = std::chrono::system_clock::to_time_t(now);
-            char buf[64];
-            std::strftime(buf, sizeof(buf), "%I:%M %p", std::localtime(&t));
-            s.response = std::string("The current time is ") + buf + ".";
-            std::cout << "  [AGT]  time agent activated\n";
-        })
-        .add_edge("time", "tts")
-
-        .add_node("weather", [](VoiceState& s) {
-            // Simulated weather — in production this would call a weather API
-            std::string location = s.entity.empty() ? "your location" : s.entity;
-            s.response = "The weather in " + location +
-                        " is 22 degrees Celsius, partly cloudy, with light wind.";
-            std::cout << "  [AGT]  weather agent activated (location=" << location << ")\n";
-        })
-        .add_edge("weather", "tts")
-
-        .add_node("music", [](VoiceState& s) {
-            std::string track = s.entity.empty() ? "a random playlist" : s.entity;
-            s.response = "Now playing " + track + ".";
-            std::cout << "  [AGT]  music agent activated (track=" << track << ")\n";
-        })
-        .add_edge("music", "tts")
-
-        .add_node("joke", [](VoiceState& s) {
-            static const char* jokes[] = {
-                "Why don't programmers like nature? It has too many bugs.",
-                "I told my computer I needed a break, and it said 'No problem — I'll go to sleep.'",
-                "Why did the developer go broke? Because he used up all his cache.",
-                "There are 10 types of people: those who understand binary and those who don't.",
-            };
-            static int idx = 0;
-            s.response = std::string(jokes[idx++ % 4]);
-            std::cout << "  [AGT]  joke agent activated\n";
-        })
-        .add_edge("joke", "tts")
-
-        .add_node("help", [](VoiceState& s) {
-            s.response = "I can help with: greetings, telling the time, "
-                        "weather forecasts, playing music, and telling jokes. "
-                        "Just say things like 'what time is it' or 'play some music'.";
-            std::cout << "  [AGT]  help agent activated\n";
-        })
-        .add_edge("help", "tts")
-
-        // Fallback agent — intent "unknown" routes here (if confidence is high enough)
-        .add_node("unknown", [](VoiceState& s) {
-            s.response = "I heard you say: \"" + s.asr_text +
-                        "\", but I'm not sure how to help with that.";
-            std::cout << "  [AGT]  fallback agent activated\n";
-        })
-        .add_edge("unknown", "tts")
-
-        // ── TTS: "speaks" the response ────────────────────────────────────────
-        // In production, this would feed into a text-to-speech engine
-        // (e.g. Piper, espeak, Coqui TTS). For now, we print to stdout.
-        .add_node("tts", [](VoiceState& s) {
-            s.spoken = s.response;
-            std::cout << "  [TTS]  ♪ \"" << s.spoken << "\"\n";
-        })
-        .add_edge("tts", embg::END)
-
-        // ── Entry point ───────────────────────────────────────────────────────
-        .set_entry("asr")
-
-        // ── Streaming: log each node as it executes ───────────────────────────
-        .on_step([](std::string_view node, const VoiceState& s) {
-            std::cout << "\n── [" << node << "]  turn=" << s.turn
-                      << "  intent=" << (s.intent.empty() ? "(pending)" : s.intent) << "\n";
-        });
+    // ── Entry + streaming ─────────────────────────────────────────────────────
+    g.set_entry("asr");
+    g.on_step([](std::string_view node, const VoiceState& s) {
+        std::cout << "\n── [" << node << "]  turn=" << s.turn
+                  << "  intent=" << (s.intent.empty() ? "(pending)" : s.intent) << "\n";
+    });
 
     return g;
 }

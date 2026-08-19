@@ -13,7 +13,7 @@
 //
 // Graph topology (Full capability):
 //
-//   agent ──[router]──▶ tool_execute ──▶ run_inference ──▶ [conf_router]
+//   agent ──[router]──▶ tool_execute ──▶ run_inference ──[conf_router]
 //     ▲                                                           │
 //     │                                          conf < 0.85      │
 //     └──────────────────────────────────────────────────────────┘
@@ -22,6 +22,13 @@
 // Graph topology (Degraded — no AI):
 //
 //   dtc_lookup ──▶ report_fault ──▶ END
+//
+// Each stage's responsibility:
+//   agent          — picks the next diagnostic tool from TOOL_SEQUENCE
+//   tool_execute   — dispatches to the tool registry, appends to evidence
+//   run_inference  — simulated on-device model; confidence grows with evidence
+//   report_fault   — formats and prints the diagnostic report
+//   dtc_lookup     — degraded-mode static DTC table lookup
 
 #include <embg/graph.hpp>
 #include <embg/embedded.hpp>
@@ -106,147 +113,169 @@ static const std::vector<std::string> TOOL_SEQUENCE = {
     "read_can_bus", "check_dtc", "read_live_pid", "run_actuator_test"
 };
 
+// ─── Node implementations ─────────────────────────────────────────────────────
+// Free functions so the graph builders read as pure topology.
+
+// Picks the next diagnostic tool. Once all tools are tried it signals
+// "finish" to force a report regardless of confidence (loop safety).
+static void agent_node(DiagnosticState& s) {
+    s.iteration++;
+    std::cout << "  [agent] iteration=" << s.iteration
+              << "  evidence=" << s.observations.size()
+              << "  conf=" << s.last_confidence << "\n";
+
+    const auto idx = static_cast<std::size_t>(s.iteration - 1);
+    if (idx < TOOL_SEQUENCE.size()) {
+        s.next_action = "use_tool";
+        s.tool_name   = TOOL_SEQUENCE[idx];
+        std::cout << "  [agent] → selected tool: " << s.tool_name << "\n";
+    } else {
+        s.next_action = "finish";
+        std::cout << "  [agent] → all tools exhausted, forcing report\n";
+    }
+}
+
+// Dispatches to the tool registry and appends result to observations.
+static void tool_execute_node(DiagnosticState& s) {
+    auto it = TOOL_REGISTRY.find(s.tool_name);
+    std::string result = (it != TOOL_REGISTRY.end())
+        ? it->second(s.anomaly_code)
+        : "[tool not found: " + s.tool_name + "]";
+
+    s.observations.push_back("[" + s.tool_name + "] " + result);
+
+    // Print truncated to keep output readable
+    std::cout << "  [tool_execute] " << s.tool_name
+              << " → " << result.substr(0, 72) << "…\n";
+}
+
+// Simulates an on-device diagnostic model (e.g., ONNX Runtime on Cortex-A).
+// Confidence grows as more tool evidence is accumulated — this is the key
+// embedded pattern: the model becomes more certain with richer context.
+static void run_inference_node(DiagnosticState& s) {
+    const auto n = s.observations.size();
+
+    // Confidence profile — simulates model uncertainty reducing with evidence
+    if      (n == 0) s.last_confidence = 0.00;  // no data
+    else if (n == 1) s.last_confidence = 0.58;  // CAN bus alone — ambiguous
+    else if (n == 2) s.last_confidence = 0.74;  // + DTC — clearer but uncertain
+    else if (n == 3) s.last_confidence = 0.91;  // + live PIDs — high confidence
+    else             s.last_confidence = 0.97;  // + actuator test — near certain
+
+    s.fault_code        = s.anomaly_code;
+    s.fault_description = tool_check_dtc(s.anomaly_code);
+
+    // Severity depends on fault type — would be model output in production
+    if (s.anomaly_code == "P0420")      s.severity = "medium";
+    else if (s.anomaly_code == "P0300") s.severity = "critical";
+    else                                s.severity = "high";
+
+    std::cout << "  [run_inference] conf=" << s.last_confidence
+              << "  severity=" << s.severity << "\n";
+}
+
+static void report_fault_full_node(DiagnosticState& s) {
+    std::ostringstream oss;
+    oss << "\n┌── DIAGNOSTIC REPORT ─────────────────────────────────────┐\n";
+    oss << "│  VIN        : " << s.vehicle_vin        << "\n";
+    oss << "│  DTC        : " << s.fault_code         << "\n";
+    oss << "│  Fault      : " << s.fault_description  << "\n";
+    oss << "│  Severity   : " << s.severity           << "\n";
+    oss << "│  Confidence : " << s.last_confidence    << "\n";
+    oss << "│  Evidence   : " << s.observations.size() << " tool result(s)\n";
+    oss << "│  Mode       : AI-assisted (full capability)\n";
+    oss << "└───────────────────────────────────────────────────────────┘\n";
+    s.report = oss.str();
+    std::cout << s.report;
+}
+
+// Degraded-mode DTC lookup: static table only, no model.
+static void dtc_lookup_node(DiagnosticState& s) {
+    s.fault_code        = s.anomaly_code;
+    s.fault_description = tool_check_dtc(s.anomaly_code);
+    s.severity          = "unknown";  // no model to assess severity
+    s.last_confidence   = 1.0;        // rule-based lookup is deterministic
+    std::cout << "  [dtc_lookup] " << s.fault_description << "\n";
+}
+
+static void report_fault_degraded_node(DiagnosticState& s) {
+    std::ostringstream oss;
+    oss << "\n┌── DIAGNOSTIC REPORT (DEGRADED MODE) ─────────────────────┐\n";
+    oss << "│  VIN      : " << s.vehicle_vin        << "\n";
+    oss << "│  DTC      : " << s.fault_code         << "\n";
+    oss << "│  Fault    : " << s.fault_description  << "\n";
+    oss << "│  Severity : unknown — AI inference unavailable\n";
+    oss << "│  Mode     : static DTC lookup — refer to technician\n";
+    oss << "└───────────────────────────────────────────────────────────┘\n";
+    s.report = oss.str();
+    std::cout << s.report;
+}
+
 // ─── Full-capability graph ────────────────────────────────────────────────────
+//
+// Topology:
+//   agent ──[router]──▶ tool_execute ──▶ run_inference ──[conf_router]
+//     ▲                                                           │
+//     │                                          conf < 0.85      │
+//     └──────────────────────────────────────────────────────────┘
+//                                         conf >= 0.85 ──▶ report_fault ──▶ END
 
 static embg::Graph<DiagnosticState> make_full_graph() {
     embg::Graph<DiagnosticState> g;
 
-    g
-        // ── Agent ──────────────────────────────────────────────────────────────
-        // Picks the next diagnostic tool. Once all tools are tried it signals
-        // "finish" to force a report regardless of confidence (loop safety).
-        .add_node("agent", [](DiagnosticState& s) {
-            s.iteration++;
-            std::cout << "  [agent] iteration=" << s.iteration
-                      << "  evidence=" << s.observations.size()
-                      << "  conf=" << s.last_confidence << "\n";
+    // ── Nodes ─────────────────────────────────────────────────────────────────
+    g.add_node("agent",         agent_node);
+    g.add_node("tool_execute",  tool_execute_node);
+    g.add_node("run_inference", run_inference_node);
+    g.add_node("report_fault",  report_fault_full_node);
 
-            const auto idx = static_cast<std::size_t>(s.iteration - 1);
-            if (idx < TOOL_SEQUENCE.size()) {
-                s.next_action = "use_tool";
-                s.tool_name   = TOOL_SEQUENCE[idx];
-                std::cout << "  [agent] → selected tool: " << s.tool_name << "\n";
-            } else {
-                s.next_action = "finish";
-                std::cout << "  [agent] → all tools exhausted, forcing report\n";
-            }
-        })
+    // ── Edges (declared together so the topology is visible at a glance) ────
+    //
+    // After every tool call, re-run inference on the updated evidence.
+    g.add_edge("tool_execute",  "run_inference");
+    g.add_edge("report_fault",  embg::END);
 
-        // ── Tool execution ──────────────────────────────────────────────────────
-        // Dispatches to the tool registry and appends result to observations.
-        .add_node("tool_execute", [](DiagnosticState& s) {
-            auto it = TOOL_REGISTRY.find(s.tool_name);
-            std::string result = (it != TOOL_REGISTRY.end())
-                ? it->second(s.anomaly_code)
-                : "[tool not found: " + s.tool_name + "]";
+    // ── Routers ──────────────────────────────────────────────────────────────
+    // Agent routes to tool or to report (when all tools exhausted).
+    g.add_conditional_edge("agent", [](const DiagnosticState& s) -> std::string {
+        return (s.next_action == "use_tool") ? "tool_execute" : "report_fault";
+    });
 
-            s.observations.push_back("[" + s.tool_name + "] " + result);
+    // Confidence gate: enough evidence → report; not yet → back to agent.
+    g.add_conditional_edge("run_inference",
+        embg::embedded::confidence_router<DiagnosticState>(
+            /*threshold=*/0.85,
+            /*above=*/"report_fault",
+            /*below=*/"agent"
+        ));
 
-            // Print truncated to keep output readable
-            std::cout << "  [tool_execute] " << s.tool_name
-                      << " → " << result.substr(0, 72) << "…\n";
-        })
-
-        // ── Inference ───────────────────────────────────────────────────────────
-        // Simulates an on-device diagnostic model (e.g., ONNX Runtime on Cortex-A).
-        // Confidence grows as more tool evidence is accumulated — this is the key
-        // embedded pattern: the model becomes more certain with richer context.
-        .add_node("run_inference", [](DiagnosticState& s) {
-            const auto n = s.observations.size();
-
-            // Confidence profile — simulates model uncertainty reducing with evidence
-            if      (n == 0) s.last_confidence = 0.00;  // no data
-            else if (n == 1) s.last_confidence = 0.58;  // CAN bus alone — ambiguous
-            else if (n == 2) s.last_confidence = 0.74;  // + DTC — clearer but uncertain
-            else if (n == 3) s.last_confidence = 0.91;  // + live PIDs — high confidence
-            else             s.last_confidence = 0.97;  // + actuator test — near certain
-
-            s.fault_code        = s.anomaly_code;
-            s.fault_description = tool_check_dtc(s.anomaly_code);
-
-            // Severity depends on fault type — would be model output in production
-            if (s.anomaly_code == "P0420")      s.severity = "medium";
-            else if (s.anomaly_code == "P0300") s.severity = "critical";
-            else                                s.severity = "high";
-
-            std::cout << "  [run_inference] conf=" << s.last_confidence
-                      << "  severity=" << s.severity << "\n";
-        })
-
-        // ── Report ──────────────────────────────────────────────────────────────
-        .add_node("report_fault", [](DiagnosticState& s) {
-            std::ostringstream oss;
-            oss << "\n┌── DIAGNOSTIC REPORT ─────────────────────────────────────┐\n";
-            oss << "│  VIN        : " << s.vehicle_vin        << "\n";
-            oss << "│  DTC        : " << s.fault_code         << "\n";
-            oss << "│  Fault      : " << s.fault_description  << "\n";
-            oss << "│  Severity   : " << s.severity           << "\n";
-            oss << "│  Confidence : " << s.last_confidence    << "\n";
-            oss << "│  Evidence   : " << s.observations.size() << " tool result(s)\n";
-            oss << "│  Mode       : AI-assisted (full capability)\n";
-            oss << "└───────────────────────────────────────────────────────────┘\n";
-            s.report = oss.str();
-            std::cout << s.report;
-        })
-
-        // ── Edges ──────────────────────────────────────────────────────────────
-
-        // Agent routes to tool or to report (when all tools exhausted)
-        .add_conditional_edge("agent", [](const DiagnosticState& s) -> std::string {
-            return (s.next_action == "use_tool") ? "tool_execute" : "report_fault";
-        })
-
-        // After every tool call, re-run inference on the updated evidence
-        .add_edge("tool_execute", "run_inference")
-
-        // Confidence gate: enough evidence → report; not yet → back to agent
-        .add_conditional_edge("run_inference",
-            embg::embedded::confidence_router<DiagnosticState>(
-                /*threshold=*/0.85,
-                /*above=*/"report_fault",
-                /*below=*/"agent"
-            ))
-
-        .add_edge("report_fault", embg::END)
-        .set_entry("agent")
-
-        .on_step([](std::string_view node, const DiagnosticState&) {
-            std::cout << "\n── [" << node << "]\n";
-        });
+    // ── Entry + streaming ─────────────────────────────────────────────────────
+    g.set_entry("agent");
+    g.on_step([](std::string_view node, const DiagnosticState&) {
+        std::cout << "\n── [" << node << "]\n";
+    });
 
     return g;
 }
 
 // ─── Degraded-mode graph (no AI — static DTC table only) ─────────────────────
+//
+// Topology:
+//   dtc_lookup → report_fault → END
 
 static embg::Graph<DiagnosticState> make_degraded_graph() {
     embg::Graph<DiagnosticState> g;
 
-    g
-        .add_node("dtc_lookup", [](DiagnosticState& s) {
-            s.fault_code        = s.anomaly_code;
-            s.fault_description = tool_check_dtc(s.anomaly_code);
-            s.severity          = "unknown";  // no model to assess severity
-            s.last_confidence   = 1.0;        // rule-based lookup is deterministic
-            std::cout << "  [dtc_lookup] " << s.fault_description << "\n";
-        })
+    // ── Nodes ─────────────────────────────────────────────────────────────────
+    g.add_node("dtc_lookup",   dtc_lookup_node);
+    g.add_node("report_fault", report_fault_degraded_node);
 
-        .add_node("report_fault", [](DiagnosticState& s) {
-            std::ostringstream oss;
-            oss << "\n┌── DIAGNOSTIC REPORT (DEGRADED MODE) ─────────────────────┐\n";
-            oss << "│  VIN      : " << s.vehicle_vin        << "\n";
-            oss << "│  DTC      : " << s.fault_code         << "\n";
-            oss << "│  Fault    : " << s.fault_description  << "\n";
-            oss << "│  Severity : unknown — AI inference unavailable\n";
-            oss << "│  Mode     : static DTC lookup — refer to technician\n";
-            oss << "└───────────────────────────────────────────────────────────┘\n";
-            s.report = oss.str();
-            std::cout << s.report;
-        })
+    // ── Edges ────────────────────────────────────────────────────────────────
+    g.add_edge("dtc_lookup",   "report_fault");
+    g.add_edge("report_fault", embg::END);
 
-        .add_edge("dtc_lookup",   "report_fault")
-        .add_edge("report_fault", embg::END)
-        .set_entry("dtc_lookup");
+    // ── Entry ───────────────────────────────────────────────────────────────
+    g.set_entry("dtc_lookup");
 
     return g;
 }

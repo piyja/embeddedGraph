@@ -20,6 +20,12 @@
 //
 // Confidence gate added: if model says "finish" but confidence < threshold,
 // the embedded router overrides and forces another reasoning step.
+//
+// Each stage's responsibility:
+//   reason        — calls the LLM, parses ACTION/TOOL/REASONING into state
+//   tool_execute  — dispatches to the tool registry, appends to evidence
+//   router        — routes on next_action; confidence gate overrides low-conf finish
+//   report_fault  — formats and prints the final report
 
 #include <embg/graph.hpp>
 #include <embg/embedded.hpp>
@@ -146,99 +152,118 @@ public:
     std::string model_name()   const override { return "diagnostic-brain-stub"; }
 };
 
+// ─── Inference: prompt builder + response handler ────────────────────────────
+// Passed to embg::inference::make_node() to wrap the brain engine into a
+// NodeFn<AgentState>.
+
+static embg::inference::Request build_reasoning_request(const AgentState& s) {
+    std::ostringstream oss;
+    oss << "Task: " << s.task << "\n\n";
+    oss << "Available tools:\n"
+        << "  check_dtc         — look up DTC code description\n"
+        << "  read_live_pid     — read live OBD-II sensor values\n"
+        << "  read_can_bus      — capture raw CAN bus frames\n"
+        << "  run_actuator_test — run hardware actuator self-test\n\n";
+    oss << "Observations so far:\n";
+    if (s.observations.empty()) {
+        oss << "  (none)\n";
+    } else {
+        for (const auto& obs : s.observations)
+            oss << "  " << obs << "\n";
+    }
+    oss << "\nDecide the next action. "
+        << "If you have enough evidence, say finish. "
+        << "Otherwise, pick exactly one tool.";
+
+    return {
+        .system_prompt =
+            "You are an automotive ECU diagnostic reasoning engine. "
+            "Respond with exactly three lines:\n"
+            "ACTION: use_tool OR finish\n"
+            "TOOL: <tool_name>  (omit line if ACTION is finish)\n"
+            "REASONING: <one sentence>",
+        .user_prompt   = oss.str(),
+        .max_tokens    = 80,
+        .temperature   = 0.05f,  // near-deterministic for embedded
+    };
+}
+
+static void apply_reasoning_response(AgentState& s, const embg::inference::Response& r) {
+    s.step++;
+    s.last_confidence = r.confidence;
+    s.next_action     = extract_field(r.text, "ACTION");
+    s.tool_name       = extract_field(r.text, "TOOL");
+    s.llm_reasoning   = extract_field(r.text, "REASONING");
+
+    // Sanitise: if parse failed, default to finish
+    if (s.next_action.empty()) s.next_action = "finish";
+
+    std::cout << "  [reason/step=" << s.step << "] "
+              << "action=" << s.next_action;
+    if (!s.tool_name.empty()) std::cout << " tool=" << s.tool_name;
+    std::cout << "\n";
+    std::cout << "  [reason] \"" << s.llm_reasoning << "\"\n";
+    std::cout << "  [reason] conf=" << r.confidence << "\n";
+
+    if (s.next_action == "finish") {
+        s.final_answer = s.llm_reasoning;
+    }
+}
+
+// ─── Node implementations ─────────────────────────────────────────────────────
+
+static void tool_execute_node(AgentState& s) {
+    auto it = TOOLS.find(s.tool_name);
+    std::string result = (it != TOOLS.end())
+        ? it->second(s.task)
+        : "[unknown tool: " + s.tool_name + "]";
+    s.observations.push_back("[" + s.tool_name + "] " + result);
+    std::cout << "  [tool/" << s.tool_name << "] " << result << "\n";
+}
+
+static void report_fault_node(AgentState& s) {
+    std::cout << "\n┌── FINAL REPORT (LLM-orchestrated) ───────────────────────┐\n";
+    std::cout << "│  Task:       " << s.task << "\n";
+    std::cout << "│  Steps:      " << s.step << " reasoning turns\n";
+    std::cout << "│  Evidence:   " << s.observations.size() << " tool result(s)\n";
+    std::cout << "│  Confidence: " << s.last_confidence << "\n";
+    std::cout << "│  Conclusion: " << s.final_answer << "\n";
+    std::cout << "└───────────────────────────────────────────────────────────┘\n";
+}
+
 // ─── Build the graph ──────────────────────────────────────────────────────────
+//
+// Topology:
+//   reason ──[router]──▶ tool_execute ──▶ reason  (loop)
+//             │
+//             └──▶ report_fault ──▶ END
+//
+// The reason node calls the LLM; the router dispatches on next_action.
+// Confidence gate: even if model says "finish", if conf < 0.85 it routes
+// back for another reasoning turn.
 
 static embg::Graph<AgentState> make_graph(embg::inference::InferenceEngine& brain) {
     embg::Graph<AgentState> g;
 
-    // ── reason node ────────────────────────────────────────────────────────
-    // This is the core node: it calls the LLM with the full context and
-    // parses the decision. The model acts as the orchestrator.
+    // ── Nodes ─────────────────────────────────────────────────────────────────
+    // reason — calls the LLM with full context, parses the decision.
+    // The model acts as the orchestrator.
     g.add_node("reason",
         embg::inference::make_node<AgentState>(
             brain,
-
-            // Prompt builder — gives model full context + available tools
-            [](const AgentState& s) -> embg::inference::Request {
-                std::ostringstream oss;
-                oss << "Task: " << s.task << "\n\n";
-                oss << "Available tools:\n"
-                    << "  check_dtc         — look up DTC code description\n"
-                    << "  read_live_pid     — read live OBD-II sensor values\n"
-                    << "  read_can_bus      — capture raw CAN bus frames\n"
-                    << "  run_actuator_test — run hardware actuator self-test\n\n";
-                oss << "Observations so far:\n";
-                if (s.observations.empty()) {
-                    oss << "  (none)\n";
-                } else {
-                    for (const auto& obs : s.observations)
-                        oss << "  " << obs << "\n";
-                }
-                oss << "\nDecide the next action. "
-                    << "If you have enough evidence, say finish. "
-                    << "Otherwise, pick exactly one tool.";
-
-                return {
-                    .system_prompt =
-                        "You are an automotive ECU diagnostic reasoning engine. "
-                        "Respond with exactly three lines:\n"
-                        "ACTION: use_tool OR finish\n"
-                        "TOOL: <tool_name>  (omit line if ACTION is finish)\n"
-                        "REASONING: <one sentence>",
-                    .user_prompt   = oss.str(),
-                    .max_tokens    = 80,
-                    .temperature   = 0.05f,  // near-deterministic for embedded
-                };
-            },
-
-            // Response handler — parse structured output, write to state
-            [](AgentState& s, const embg::inference::Response& r) {
-                s.step++;
-                s.last_confidence = r.confidence;
-                s.next_action     = extract_field(r.text, "ACTION");
-                s.tool_name       = extract_field(r.text, "TOOL");
-                s.llm_reasoning   = extract_field(r.text, "REASONING");
-
-                // Sanitise: if parse failed, default to finish
-                if (s.next_action.empty()) s.next_action = "finish";
-
-                std::cout << "  [reason/step=" << s.step << "] "
-                          << "action=" << s.next_action;
-                if (!s.tool_name.empty()) std::cout << " tool=" << s.tool_name;
-                std::cout << "\n";
-                std::cout << "  [reason] \"" << s.llm_reasoning << "\"\n";
-                std::cout << "  [reason] conf=" << r.confidence << "\n";
-
-                if (s.next_action == "finish") {
-                    s.final_answer = s.llm_reasoning;
-                }
-            }
+            build_reasoning_request,
+            apply_reasoning_response
         ));
 
-    // ── tool_execute ───────────────────────────────────────────────────────
-    g.add_node("tool_execute", [](AgentState& s) {
-        auto it = TOOLS.find(s.tool_name);
-        std::string result = (it != TOOLS.end())
-            ? it->second(s.task)
-            : "[unknown tool: " + s.tool_name + "]";
-        s.observations.push_back("[" + s.tool_name + "] " + result);
-        std::cout << "  [tool/" << s.tool_name << "] " << result << "\n";
-    });
+    g.add_node("tool_execute", tool_execute_node);
+    g.add_node("report_fault", report_fault_node);
 
-    // ── report_fault ───────────────────────────────────────────────────────
-    g.add_node("report_fault", [](AgentState& s) {
-        std::cout << "\n┌── FINAL REPORT (LLM-orchestrated) ───────────────────────┐\n";
-        std::cout << "│  Task:       " << s.task << "\n";
-        std::cout << "│  Steps:      " << s.step << " reasoning turns\n";
-        std::cout << "│  Evidence:   " << s.observations.size() << " tool result(s)\n";
-        std::cout << "│  Confidence: " << s.last_confidence << "\n";
-        std::cout << "│  Conclusion: " << s.final_answer << "\n";
-        std::cout << "└───────────────────────────────────────────────────────────┘\n";
-    });
+    // ── Edges (declared together so the topology is visible at a glance) ────
+    g.add_edge("tool_execute", "reason");
+    g.add_edge("report_fault", embg::END);
 
-    // ── edges ──────────────────────────────────────────────────────────────
-
-    // Primary routing: model says use_tool → tool_execute, finish → report
+    // ── Router: reason → {tool_execute | report_fault | reason} ──────────────
+    // Primary routing: model says use_tool → tool_execute, finish → report.
     // Confidence gate sits on top: even if model says "finish",
     // if confidence < 0.85 it routes back for another reasoning turn.
     g.add_conditional_edge("reason", [](const AgentState& s) -> std::string {
@@ -255,10 +280,8 @@ static embg::Graph<AgentState> make_graph(embg::inference::InferenceEngine& brai
         return "reason";
     });
 
-    g.add_edge("tool_execute", "reason");
-    g.add_edge("report_fault", embg::END);
+    // ── Entry + streaming ─────────────────────────────────────────────────────
     g.set_entry("reason");
-
     g.on_step([](std::string_view node, const AgentState& s) {
         std::cout << "\n── [" << node << "]  step=" << s.step
                   << "  obs=" << s.observations.size() << "\n";

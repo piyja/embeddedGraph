@@ -6,8 +6,14 @@
 //
 // Graph topology:
 //
-//   preprocess ──▶ classify ──▶ [router] ──▶ respond_technical ──▶ END
-//                                       └──▶ respond_general   ──▶ END
+//   preprocess ──▶ classify ──[router on s.category]──▶ respond_* ──▶ END
+//
+// Each stage's responsibility:
+//   preprocess — lowercases the input text
+//   classify   — inspects the text for technical keywords, sets s.category
+//   router     — conditional edge: routes to respond_technical or
+//                respond_general based on s.category
+//   respond_*  — formats a category-appropriate response
 
 #include <embg/graph.hpp>
 #include <algorithm>
@@ -22,56 +28,80 @@ struct PipelineState {
     std::string response = {};
 };
 
+// ─── Node implementations ─────────────────────────────────────────────────────
+// Free functions so the graph builder reads as pure topology — the "what each
+// stage does" story is separated from the "how are they wired" story.
+
+static void preprocess_node(PipelineState& s) {
+    s.cleaned = s.input;
+    std::transform(s.cleaned.begin(), s.cleaned.end(),
+                   s.cleaned.begin(), [](unsigned char c) {
+                       return static_cast<char>(std::tolower(c));
+                   });
+}
+
+static void classify_node(PipelineState& s) {
+    // Simulates an LLM classification call.
+    const bool is_technical =
+        s.cleaned.find("error")   != std::string::npos ||
+        s.cleaned.find("crash")   != std::string::npos ||
+        s.cleaned.find("compile") != std::string::npos ||
+        s.cleaned.find("segfault")!= std::string::npos;
+
+    s.category = is_technical ? "technical" : "general";
+}
+
+static void respond_technical_node(PipelineState& s) {
+    s.response = "[TECHNICAL] Looks like a code issue in: \"" + s.cleaned + "\"";
+}
+
+static void respond_general_node(PipelineState& s) {
+    s.response = "[GENERAL] Here is a general answer for: \"" + s.cleaned + "\"";
+}
+
+// ─── Build the pipeline graph ─────────────────────────────────────────────────
+//
+// The builder is intentionally declarative: Nodes, Edges, Router, and Entry
+// are each their own labeled section so the topology can be read at a glance.
+
+static embg::Graph<PipelineState> make_pipeline_graph() {
+    embg::Graph<PipelineState> g;
+
+    // ── Nodes ─────────────────────────────────────────────────────────────────
+    g.add_node("preprocess",         preprocess_node);
+    g.add_node("classify",           classify_node);
+    g.add_node("respond_technical",  respond_technical_node);
+    g.add_node("respond_general",    respond_general_node);
+
+    // ── Edges (declared together so the topology is visible at a glance) ────
+    //
+    //   preprocess → classify → [router] → respond_* → END
+    g.add_edge("preprocess",        "classify");
+    g.add_edge("respond_technical", embg::END);
+    g.add_edge("respond_general",   embg::END);
+
+    // ── Router: classify → responder matching s.category ─────────────────────
+    g.add_conditional_edge("classify", [](const PipelineState& s) {
+        return s.category == "technical" ? "respond_technical" : "respond_general";
+    });
+
+    // ── Entry + streaming ─────────────────────────────────────────────────────
+    g.set_entry("preprocess");
+    g.on_step([](std::string_view node, const PipelineState& s) {
+        std::cout << "  [step] " << node;
+        if (!s.category.empty()) std::cout << "  (category=" << s.category << ")";
+        std::cout << "\n";
+    });
+
+    return g;
+}
+
+// ─── Main ─────────────────────────────────────────────────────────────────────
+
 int main() {
-    embg::Graph<PipelineState> graph;
-
-    graph
-        .add_node("preprocess", [](PipelineState& s) {
-            s.cleaned = s.input;
-            std::transform(s.cleaned.begin(), s.cleaned.end(),
-                           s.cleaned.begin(), [](unsigned char c) {
-                               return static_cast<char>(std::tolower(c));
-                           });
-        })
-        .add_node("classify", [](PipelineState& s) {
-            // Simulates an LLM classification call
-            const bool is_technical =
-                s.cleaned.find("error")   != std::string::npos ||
-                s.cleaned.find("crash")   != std::string::npos ||
-                s.cleaned.find("compile") != std::string::npos ||
-                s.cleaned.find("segfault")!= std::string::npos;
-
-            s.category = is_technical ? "technical" : "general";
-        })
-        .add_node("respond_technical", [](PipelineState& s) {
-            s.response = "[TECHNICAL] Looks like a code issue in: \"" + s.cleaned + "\"";
-        })
-        .add_node("respond_general", [](PipelineState& s) {
-            s.response = "[GENERAL] Here is a general answer for: \"" + s.cleaned + "\"";
-        })
-
-        // Linear edges
-        .add_edge("preprocess", "classify")
-
-        // Conditional edge — router reads state, returns next node name
-        .add_conditional_edge("classify", [](const PipelineState& s) {
-            return s.category == "technical" ? "respond_technical" : "respond_general";
-        })
-
-        .add_edge("respond_technical", embg::END)
-        .add_edge("respond_general",   embg::END)
-
-        .set_entry("preprocess")
-
-        // Step callback = LangGraph event streaming
-        .on_step([](std::string_view node, const PipelineState& s) {
-            std::cout << "  [step] " << node;
-            if (!s.category.empty()) std::cout << "  (category=" << s.category << ")";
-            std::cout << "\n";
-        });
+    auto graph = make_pipeline_graph();
 
     // ── Run ──────────────────────────────────────────────────────────────────
-
     auto run = [&](const std::string& input) {
         PipelineState state{ .input = input };
         std::cout << "\nInput: \"" << input << "\"\n";
