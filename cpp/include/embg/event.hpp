@@ -24,10 +24,10 @@
 // Static-allocation compatible: fixed-capacity queue + subscription list.
 
 #include "config.hpp"
+#include "error.hpp"
 #include "storage.hpp"
 #include "graph.hpp"
 #include <cstddef>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -52,6 +52,9 @@ struct Event {
 // Lightweight, type-erased handle that event handlers use to emit new events.
 // No heap allocation — uses a function pointer + context pointer (16 bytes).
 // Constructed internally by EventGraph::process() and passed to each handler.
+//
+// Testing: bind() is public so EventEmitter can be created in unit tests
+// bound to any queue-like container with push_back(const Event&).
 
 class EventEmitter {
 public:
@@ -63,6 +66,20 @@ public:
         if (push_) push_(ctx_, {type, data, size});
     }
 
+    // Factory: bind an EventEmitter to any queue with push_back(const Event&).
+    // Public for testability — EventGraph uses this internally, but tests can
+    // also create an emitter bound to a local StaticVector or std::vector.
+    template<typename Queue>
+    static EventEmitter bind(Queue* q) {
+        return EventEmitter(q, [](void* ctx, const Event& e) {
+            auto* queue = static_cast<Queue*>(ctx);
+            queue->push_back(e);
+        });
+    }
+
+    // Default-constructed emitter is a no-op (push_ is null).
+    EventEmitter() noexcept = default;
+
 private:
     using PushFn = void(*)(void*, const Event&);
 
@@ -70,14 +87,6 @@ private:
     PushFn  push_ = nullptr;
 
     EventEmitter(void* ctx, PushFn push) : ctx_(ctx), push_(push) {}
-
-    template<typename Queue>
-    static EventEmitter bind(Queue* q) {
-        return {q, [](void* ctx, const Event& e) {
-            auto* queue = static_cast<Queue*>(ctx);
-            queue->push_back(e);
-        }};
-    }
 
     template<GraphState S, typename Cfg> friend class EventGraph;
 };
@@ -176,7 +185,7 @@ public:
 
         while (head_ < queue_.size()) {
             if (processed >= max_events)
-                throw std::runtime_error(
+                EMBG_ERROR(MaxEventsExceeded,
                     "embg::event::EventGraph: max_events exceeded — "
                     "check for unbounded event loops");
 

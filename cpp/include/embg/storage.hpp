@@ -15,6 +15,7 @@
 //     static_assert gives a clear error if a capture is too big.
 
 #include "config.hpp"
+#include "error.hpp"
 #include <algorithm>
 #include <array>
 #include <cstddef>
@@ -22,7 +23,6 @@
 #include <functional>
 #include <string>
 #include <string_view>
-#include <stdexcept>
 #include <type_traits>
 #include <utility>
 
@@ -136,7 +136,7 @@ public:
         if (size_ < Cap)
             data_[size_++] = std::move(v);
         else
-            throw std::runtime_error("StaticVector: capacity exceeded");
+            EMBG_ERROR(CapacityExceeded, "StaticVector: capacity exceeded");
     }
 
     void pop_back() noexcept { if (size_ > 0) --size_; }
@@ -199,7 +199,7 @@ public:
             data_[size_].second = std::move(val);
             ++size_;
         } else {
-            throw std::runtime_error("StaticMap: capacity exceeded");
+            EMBG_ERROR(CapacityExceeded, "StaticMap: capacity exceeded");
         }
     }
 
@@ -310,15 +310,22 @@ public:
 
     explicit operator bool() const noexcept { return invoke_ != nullptr; }
 
-    Ret operator()(Args... args) const {
+    // operator() is NON-const: the stored callable may be mutable (e.g. lambdas
+    // with mutable captures used in make_node). This is honest about the
+    // mutation — calling a mutable lambda IS a mutation.
+    //
+    // Thread safety: NOT thread-safe for concurrent calls to the same Function.
+    // This matches std::function semantics. If you need concurrent invocation,
+    // wrap the callable in a thread-safe type.
+    Ret operator()(Args... args) {
         if (!invoke_)
-            throw std::runtime_error("embg::Function: call on empty function");
+            EMBG_ERROR(EmptyFunction, "embg::Function: call on empty function");
         return invoke_(&storage_, std::forward<Args>(args)...);
     }
 
 private:
     alignas(std::max_align_t) std::byte storage_[InlineBytes] = {};
-    Ret   (*invoke_)(const void*, Args&&...) = nullptr;
+    Ret   (*invoke_)(void*, Args&&...)       = nullptr;
     void  (*destroy_)(void*)                 = nullptr;
     void  (*copy_)(const void*, void*)       = nullptr;
 
@@ -328,11 +335,8 @@ private:
     }
 
     template<typename F>
-    static Ret invoke_stub(const void* obj, Args&&... args) {
-        // const_cast: operator() is const to allow calling from std::visit,
-        // but the stored callable may be mutable (e.g. make_node's lambda).
-        // This matches std::function's internal behavior.
-        return (*static_cast<F*>(const_cast<void*>(obj)))(std::forward<Args>(args)...);
+    static Ret invoke_stub(void* obj, Args&&... args) {
+        return (*static_cast<F*>(obj))(std::forward<Args>(args)...);
     }
 
     template<typename F>

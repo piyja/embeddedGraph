@@ -1,11 +1,11 @@
 #pragma once
 
 #include "config.hpp"
+#include "error.hpp"
 #include "storage.hpp"
 #include <concepts>
 #include <functional>
 #include <optional>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -46,7 +46,7 @@ using NodeFn = std::conditional_t<Cfg::StaticAlloc,
 
 template<GraphState S, typename Cfg>
 using RouterFn = std::conditional_t<Cfg::StaticAlloc,
-    Function<String<Cfg>(const S&), Cfg::FnInlineBytes>,
+    Function<String<Cfg>(const S&), Cfg::RouterFnInlineBytes>,
     std::function<String<Cfg>(const S&)>>;
 
 template<GraphState S, typename Cfg>
@@ -123,7 +123,7 @@ public:
 
     void run(S& state, std::size_t max_steps = 100) {
         if (entry_.empty())
-            throw std::runtime_error("embg::Graph: no entry node set — call set_entry()");
+            EMBG_ERROR(NoEntry, "embg::Graph: no entry node set — call set_entry()");
 
         StringT current = entry_;
 
@@ -132,7 +132,7 @@ public:
 
             auto node_it = nodes_.find(current);
             if (node_it == nodes_.end())
-                throw std::runtime_error("embg::Graph: unknown node '" + std::string(current) + "'");
+                EMBG_ERROR(UnknownNode, "embg::Graph: unknown node");
 
             if (step_fn_) (*step_fn_)(current, state);
 
@@ -144,7 +144,7 @@ public:
             auto edge_it = edges_.find(current);
             if (edge_it == edges_.end()) return;
 
-            current = std::visit([&state](const auto& dest) -> StringT {
+            current = std::visit([&state](auto& dest) -> StringT {
                 using T = std::decay_t<decltype(dest)>;
                 if constexpr (std::is_same_v<T, StringT>) {
                     return dest;
@@ -154,8 +154,7 @@ public:
             }, edge_it->second);
         }
 
-        throw std::runtime_error(
-            "embg::Graph: max_steps exceeded — check for unbounded loops");
+        EMBG_ERROR(MaxStepsExceeded, "embg::Graph: max_steps exceeded — check for unbounded loops");
     }
 
 private:
