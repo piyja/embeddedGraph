@@ -147,6 +147,7 @@ embeddedGraph/
 │   │   ├── embedded.hpp       # Confidence router, timeout, degraded mode
 │   │   ├── inference.hpp      # LLM engine abstraction + llama.cpp integration
 │   │   ├── config.hpp         # Compile-time config (default vs static alloc)
+│   │   ├── error.hpp          # Error handling (throw or -fno-exceptions handler)
 │   │   ├── storage.hpp        # Fixed-capacity primitives (StaticString, StaticMap, Function)
 │   │   └── event.hpp          # Event-driven execution layer (pub/sub, fan-out, event queue)
 │   ├── examples/

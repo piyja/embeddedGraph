@@ -40,6 +40,8 @@ struct DefaultConfig {
     static constexpr std::size_t MaxPromptLen     = 512;
     static constexpr std::size_t MaxInferenceResp = 8;
     static constexpr std::size_t FnInlineBytes    = 64;
+    // Larger SBO for router functions (confidence_router captures owned strings)
+    static constexpr std::size_t RouterFnInlineBytes = 128;
     static constexpr std::size_t NodeFnInlineBytes = 256;
     // EventGraph capacities
     static constexpr std::size_t MaxEvents        = 32;  // max pending events in queue
@@ -74,6 +76,8 @@ struct StaticConfig {
 
     // SBO callable storage — lambdas with captures up to this size store inline
     static constexpr std::size_t FnInlineBytes = 64;
+    // Larger SBO for router functions (confidence_router captures owned strings)
+    static constexpr std::size_t RouterFnInlineBytes = 128;
     // Larger SBO for node functions (inference nodes capture sub-callables)
     static constexpr std::size_t NodeFnInlineBytes = 256;
 

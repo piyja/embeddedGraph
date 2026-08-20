@@ -7,7 +7,7 @@ EXAMPLES := 01_simple_chain 02_agent_loop 03_embedded_sensor 04_automotive_diagn
             05_hsm_ecu_states 06_llm_diagnostic 07_llm_brain_agent 08_event_sensor_hub \
             09_voice_assistant
 
-HEADERS  := include/embg/config.hpp include/embg/storage.hpp \
+HEADERS  := include/embg/config.hpp include/embg/error.hpp include/embg/storage.hpp \
             include/embg/graph.hpp include/embg/embedded.hpp \
             include/embg/hsm.hpp include/embg/inference.hpp \
             include/embg/event.hpp

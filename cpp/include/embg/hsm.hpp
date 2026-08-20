@@ -21,7 +21,6 @@
 #include <algorithm>
 #include <functional>
 #include <optional>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -85,7 +84,7 @@ public:
 
     void init(S& state) {
         if (initial_.empty())
-            throw std::runtime_error("embg::hsm: no initial state set");
+            EMBG_ERROR(NoInitialState, "embg::hsm: no initial state set");
         enter_chain(initial_, state);
     }
 
@@ -135,7 +134,7 @@ private:
     StateConfig& get_state(const StringT& name) {
         auto it = states_.find(name);
         if (it == states_.end())
-            throw std::runtime_error("embg::hsm: unknown state '" + std::string(name) + "'");
+            EMBG_ERROR(UnknownState, "embg::hsm: unknown state");
         return it->second;
     }
 

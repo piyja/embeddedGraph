@@ -17,9 +17,9 @@
 //   Bare-metal:    Replace with RTOS task + notification + vTaskDelete.
  
 #include "graph.hpp"
+#include "error.hpp"
 #include <chrono>
-#include <stdexcept>
- 
+
 #if !defined(EMBG_STATIC_ALLOC)
 #include <atomic>
 #include <memory>
@@ -36,12 +36,17 @@ concept ConfidenceState = embg::GraphState<S> && requires(const S s) {
 };
  
 // ─── Confidence-gated router ──────────────────────────────────────────────────
- 
+//
+// above/below are captured BY VALUE as String<Cfg> (std::string in default
+// mode, StaticString in static mode). This OWNS the data — no dangling
+// pointer risk from passing std::string("...").c_str() or other temporaries.
+// Accepts const char* implicitly via String<Cfg>'s constructor.
+
 template<ConfidenceState S, typename Cfg = embg::Config>
 embg::detail::RouterFn<S, Cfg> confidence_router(
-    double      threshold,
-    const char* above,
-    const char* below
+    double                   threshold,
+    embg::detail::String<Cfg> above,
+    embg::detail::String<Cfg> below
 ) {
     return [threshold, above, below](const S& state) -> embg::detail::String<Cfg> {
         return state.last_confidence >= threshold ? above : below;
@@ -151,27 +156,61 @@ enum class CapabilityLevel {
 };
  
 // ─── Degraded-mode runner ─────────────────────────────────────────────────────
- 
+//
+// Stores graph references for capability-layered execution.
+//
+// Lifetime contract: graphs must outlive the runner. In default mode,
+// add_level_shared() is available to transfer ownership to a shared_ptr
+// for automatic lifetime management. In static mode, only raw references
+// are stored (shared_ptr is heap-based) — the user must ensure graphs
+// outlive the runner.
+
 template<embg::GraphState S, typename Cfg = embg::Config>
 class DegradedModeRunner {
 public:
-    using LevelMap = embg::detail::Map<CapabilityLevel, embg::Graph<S, Cfg>*, Cfg, Cfg::MaxCapLevels>;
- 
+    using GraphPtr = embg::Graph<S, Cfg>*;
+#if !defined(EMBG_STATIC_ALLOC)
+    using GraphShared = std::shared_ptr<embg::Graph<S, Cfg>>;
+#endif
+    using LevelMap = embg::detail::Map<CapabilityLevel, GraphPtr, Cfg, Cfg::MaxCapLevels>;
+
+    // Register a graph for a capability level.
+    // Lifetime: the graph must outlive the runner (or call clear_level()).
     DegradedModeRunner& add_level(CapabilityLevel level, embg::Graph<S, Cfg>& graph) {
         levels_.insert_or_assign(level, &graph);
         return *this;
     }
- 
+
+#if !defined(EMBG_STATIC_ALLOC)
+    // Register a graph with shared ownership — the runner keeps the graph
+    // alive via shared_ptr. No dangling risk.
+    DegradedModeRunner& add_level_shared(CapabilityLevel level, GraphShared graph) {
+        shared_graphs_.push_back(graph);
+        levels_.insert_or_assign(level, graph.get());
+        return *this;
+    }
+#endif
+
+    // Deregister a level (clears the raw pointer; does not release shared_ptr).
+    void clear_level(CapabilityLevel level) noexcept {
+        auto it = levels_.find(level);
+        if (it != levels_.end())
+            levels_.insert_or_assign(level, nullptr);
+    }
+
     void run(S& state, CapabilityLevel level, std::size_t max_steps = 100) {
         auto it = levels_.find(level);
-        if (it == levels_.end())
-            throw std::runtime_error(
+        if (it == levels_.end() || it->second == nullptr)
+            EMBG_ERROR(NoGraphRegistered,
                 "embg::embedded::DegradedModeRunner: no graph registered for level");
         it->second->run(state, max_steps);
     }
- 
+
 private:
     LevelMap levels_;
+#if !defined(EMBG_STATIC_ALLOC)
+    std::vector<GraphShared> shared_graphs_;
+#endif
 };
  
 } // namespace embg::embedded
