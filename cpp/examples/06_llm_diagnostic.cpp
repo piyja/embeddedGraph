@@ -21,6 +21,20 @@
 //   Qwen2.5 0.5B Q8     — very fast, ~500MB, suited for MCU with NPU
 //   Gemma 2 2B Q4       — strong instruction following, 1.5GB
 //   TinyLlama 1.1B Q4   — smallest, Cortex-A series target
+//
+// Graph topology:
+//
+//   agent ──[router]──▶ tool_execute ──▶ run_inference ──[conf_router]
+//     ▲                                                           │
+//     │                                          conf < 0.85      │
+//     └──────────────────────────────────────────────────────────┘
+//                                         conf >= 0.85 ──▶ report_fault ──▶ END
+//
+// Each stage's responsibility:
+//   agent          — picks the next diagnostic tool from TOOL_SEQ
+//   tool_execute   — dispatches to the tool registry, appends to evidence
+//   run_inference  — calls the InferenceEngine via embg::inference::make_node()
+//   report_fault   — formats and prints the diagnostic report
 
 #include <embg/graph.hpp>
 #include <embg/embedded.hpp>
@@ -87,103 +101,122 @@ static const std::vector<std::string> TOOL_SEQ = {
     "read_can_bus", "check_dtc", "read_live_pid"
 };
 
-// ─── Build graph with inference node ─────────────────────────────────────────
+// ─── Node implementations ─────────────────────────────────────────────────────
+// Free functions so the graph builder reads as pure topology.
+
+static void agent_node(DiagnosticState& s) {
+    s.iteration++;
+    const auto idx = static_cast<std::size_t>(s.iteration - 1);
+    if (idx < TOOL_SEQ.size()) {
+        s.next_action = "use_tool";
+        s.tool_name   = TOOL_SEQ[idx];
+        std::cout << "  [agent] step=" << s.iteration
+                  << " → calling: " << s.tool_name << "\n";
+    } else {
+        s.next_action = "finish";
+        std::cout << "  [agent] tools exhausted → forcing report\n";
+    }
+}
+
+static void tool_execute_node(DiagnosticState& s) {
+    auto it = TOOLS.find(s.tool_name);
+    std::string result = (it != TOOLS.end())
+        ? it->second(s.anomaly_code)
+        : "[tool not found]";
+    s.observations.push_back("[" + s.tool_name + "] " + result);
+    std::cout << "  [tool] " << result.substr(0, 80) << "\n";
+}
+
+// ─── Inference: prompt builder + response handler ────────────────────────────
+// These are passed to embg::inference::make_node() to wrap the engine into a
+// NodeFn<DiagnosticState> with no coupling to the engine type.
+
+static embg::inference::Request build_diagnostic_request(const DiagnosticState& s) {
+    std::ostringstream oss;
+    oss << "Vehicle VIN: " << s.vehicle_vin << "\n";
+    oss << "Fault code: "  << s.anomaly_code << "\n";
+    oss << "Evidence collected:\n";
+    for (const auto& obs : s.observations)
+        oss << "  - " << obs << "\n";
+    oss << "Based on this evidence, what is the fault and severity?";
+
+    return {
+        .system_prompt = "You are an automotive ECU diagnostic assistant. "
+                         "Respond concisely with: fault description, "
+                         "severity (low/medium/high/critical), "
+                         "and recommended action.",
+        .user_prompt   = oss.str(),
+        .max_tokens    = 128,
+        .temperature   = 0.1f,
+    };
+}
+
+static void apply_inference_response(DiagnosticState& s, const embg::inference::Response& r) {
+    s.last_confidence   = r.confidence;
+    s.raw_llm_output    = r.text;
+    s.fault_description = tool_check_dtc(s.anomaly_code);  // structured fallback
+    s.severity          = (s.anomaly_code == "P0300") ? "critical" : "medium";
+
+    std::cout << "  [inference/" << (r.confidence >= 0.85 ? "✓" : "~")
+              << "] conf=" << r.confidence
+              << " engine=" << "stub"  // swap for engine.model_name()
+              << "\n";
+    std::cout << "  [inference] response: " << r.text.substr(0, 100) << "\n";
+}
+
+static void report_fault_node(DiagnosticState& s) {
+    std::ostringstream oss;
+    oss << "\n┌── DIAGNOSTIC REPORT ─────────────────────────────────────┐\n";
+    oss << "│  VIN        : " << s.vehicle_vin        << "\n";
+    oss << "│  DTC        : " << s.anomaly_code       << "\n";
+    oss << "│  Fault      : " << s.fault_description  << "\n";
+    oss << "│  Severity   : " << s.severity           << "\n";
+    oss << "│  Confidence : " << s.last_confidence    << "\n";
+    oss << "│  LLM output : " << s.raw_llm_output.substr(
+                                    0, std::min<std::size_t>(60, s.raw_llm_output.size()))
+                              << "\n";
+    oss << "│  Evidence   : " << s.observations.size() << " tool(s)\n";
+    oss << "└───────────────────────────────────────────────────────────┘\n";
+    s.report = oss.str();
+    std::cout << s.report;
+}
+
+// ─── Build the graph ──────────────────────────────────────────────────────────
+//
+// Topology:
+//   agent ──[router]──▶ tool_execute ──▶ run_inference ──[conf_router]
+//     ▲                                                           │
+//     │                                          conf < 0.85      │
+//     └──────────────────────────────────────────────────────────┘
+//                                         conf >= 0.85 ──▶ report_fault ──▶ END
 
 static embg::Graph<DiagnosticState> make_graph(embg::inference::InferenceEngine& engine) {
     embg::Graph<DiagnosticState> g;
 
-    // ── agent ──────────────────────────────────────────────────────────────
-    g.add_node("agent", [](DiagnosticState& s) {
-        s.iteration++;
-        const auto idx = static_cast<std::size_t>(s.iteration - 1);
-        if (idx < TOOL_SEQ.size()) {
-            s.next_action = "use_tool";
-            s.tool_name   = TOOL_SEQ[idx];
-            std::cout << "  [agent] step=" << s.iteration
-                      << " → calling: " << s.tool_name << "\n";
-        } else {
-            s.next_action = "finish";
-            std::cout << "  [agent] tools exhausted → forcing report\n";
-        }
-    });
+    // ── Nodes ─────────────────────────────────────────────────────────────────
+    g.add_node("agent",         agent_node);
+    g.add_node("tool_execute",  tool_execute_node);
 
-    // ── tool_execute ───────────────────────────────────────────────────────
-    g.add_node("tool_execute", [](DiagnosticState& s) {
-        auto it = TOOLS.find(s.tool_name);
-        std::string result = (it != TOOLS.end())
-            ? it->second(s.anomaly_code)
-            : "[tool not found]";
-        s.observations.push_back("[" + s.tool_name + "] " + result);
-        std::cout << "  [tool] " << result.substr(0, 80) << "\n";
-    });
-
-    // ── run_inference — uses the InferenceEngine ───────────────────────────
-    // This is the key node: embg::inference::make_node() wraps the engine into
-    // a NodeFn<DiagnosticState> with no coupling to the engine type.
+    // run_inference — uses the InferenceEngine. embg::inference::make_node()
+    // wraps the engine into a NodeFn<DiagnosticState> with no coupling to the
+    // engine type.
     g.add_node("run_inference",
         embg::inference::make_node<DiagnosticState>(
             engine,
-
-            // Build prompt from accumulated observations
-            [](const DiagnosticState& s) -> embg::inference::Request {
-                std::ostringstream oss;
-                oss << "Vehicle VIN: " << s.vehicle_vin << "\n";
-                oss << "Fault code: "  << s.anomaly_code << "\n";
-                oss << "Evidence collected:\n";
-                for (const auto& obs : s.observations)
-                    oss << "  - " << obs << "\n";
-                oss << "Based on this evidence, what is the fault and severity?";
-
-                return {
-                    .system_prompt = "You are an automotive ECU diagnostic assistant. "
-                                     "Respond concisely with: fault description, "
-                                     "severity (low/medium/high/critical), "
-                                     "and recommended action.",
-                    .user_prompt   = oss.str(),
-                    .max_tokens    = 128,
-                    .temperature   = 0.1f,
-                };
-            },
-
-            // Apply inference response back to state
-            [](DiagnosticState& s, const embg::inference::Response& r) {
-                s.last_confidence   = r.confidence;
-                s.raw_llm_output    = r.text;
-                s.fault_description = tool_check_dtc(s.anomaly_code);  // structured fallback
-                s.severity          = (s.anomaly_code == "P0300") ? "critical" : "medium";
-
-                std::cout << "  [inference/" << (r.confidence >= 0.85 ? "✓" : "~")
-                          << "] conf=" << r.confidence
-                          << " engine=" << "stub"  // swap for engine.model_name()
-                          << "\n";
-                std::cout << "  [inference] response: " << r.text.substr(0, 100) << "\n";
-            }
+            build_diagnostic_request,
+            apply_inference_response
         ));
 
-    // ── report_fault ───────────────────────────────────────────────────────
-    g.add_node("report_fault", [](DiagnosticState& s) {
-        std::ostringstream oss;
-        oss << "\n┌── DIAGNOSTIC REPORT ─────────────────────────────────────┐\n";
-        oss << "│  VIN        : " << s.vehicle_vin        << "\n";
-        oss << "│  DTC        : " << s.anomaly_code       << "\n";
-        oss << "│  Fault      : " << s.fault_description  << "\n";
-        oss << "│  Severity   : " << s.severity           << "\n";
-        oss << "│  Confidence : " << s.last_confidence    << "\n";
-        oss << "│  LLM output : " << s.raw_llm_output.substr(
-                                        0, std::min<std::size_t>(60, s.raw_llm_output.size()))
-                                  << "\n";
-        oss << "│  Evidence   : " << s.observations.size() << " tool(s)\n";
-        oss << "└───────────────────────────────────────────────────────────┘\n";
-        s.report = oss.str();
-        std::cout << s.report;
-    });
+    g.add_node("report_fault", report_fault_node);
 
-    // ── edges ──────────────────────────────────────────────────────────────
+    // ── Edges (declared together so the topology is visible at a glance) ────
+    g.add_edge("tool_execute", "run_inference");
+    g.add_edge("report_fault", embg::END);
+
+    // ── Routers ──────────────────────────────────────────────────────────────
     g.add_conditional_edge("agent", [](const DiagnosticState& s) {
         return (s.next_action == "use_tool") ? "tool_execute" : "report_fault";
     });
-
-    g.add_edge("tool_execute", "run_inference");
 
     g.add_conditional_edge("run_inference",
         embg::embedded::confidence_router<DiagnosticState>(
@@ -192,7 +225,7 @@ static embg::Graph<DiagnosticState> make_graph(embg::inference::InferenceEngine&
             /*below=*/"agent"
         ));
 
-    g.add_edge("report_fault", embg::END);
+    // ── Entry ───────────────────────────────────────────────────────────────
     g.set_entry("agent");
 
     return g;

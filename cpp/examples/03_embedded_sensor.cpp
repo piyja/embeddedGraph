@@ -8,13 +8,20 @@
 //
 // Graph topology (full capability level):
 //
-//   read_sensor ──▶ run_inference ──▶ [confidence_router]
+//   read_sensor ──▶ run_inference ──[confidence_router]
 //                                       │ conf >= 0.85 ──▶ act_on_inference ──▶ log ──▶ END
 //                                       └ conf <  0.85 ──▶ rule_based       ──▶ log ──▶ END
 //
 // Degraded capability level (no AI):
 //
 //   read_sensor ──▶ rule_based ──▶ log ──▶ END
+//
+// Each stage's responsibility:
+//   read_sensor       — samples the temperature sensor
+//   run_inference     — on-device model classifies the reading + sets confidence
+//   act_on_inference  — acts on model output (high-confidence path)
+//   rule_based        — deterministic fallback (low-confidence or degraded path)
+//   log               — records the action taken
 
 #include <embg/graph.hpp>
 #include <embg/embedded.hpp>
@@ -56,103 +63,123 @@ static std::string classify_by_rule(float value) {
     return "normal";
 }
 
+// ─── Node implementations ─────────────────────────────────────────────────────
+// Free functions so the graph builders read as pure topology. Where both
+// graphs share identical node logic, a single function is reused.
+
+static void read_sensor_node(SensorState& s) {
+    s.raw_value = read_temperature();
+    std::cout << "  [read_sensor]   raw=" << s.raw_value << " °C\n";
+}
+
+static void run_inference_node(SensorState& s) {
+    // Simulates a small on-device model.
+    // Clear deviation from baseline → high confidence.
+    // Near the boundary → lower confidence (model is uncertain).
+    const float deviation = std::abs(s.raw_value - 25.0f);
+
+    if (deviation < 1.5f) {
+        s.classification  = "normal";
+        s.last_confidence = 0.96;
+    } else if (deviation < 3.5f) {
+        // Ambiguous zone — confidence drops below typical threshold
+        s.classification  = "elevated";
+        s.last_confidence = 0.71;
+    } else {
+        s.classification  = "critical";
+        s.last_confidence = 0.92;
+    }
+
+    s.processed_value = s.raw_value;
+    std::cout << "  [run_inference] class=" << s.classification
+              << "  conf=" << s.last_confidence << "\n";
+}
+
+static void act_on_inference_node(SensorState& s) {
+    s.action_taken = "model-driven → " + s.classification;
+    s.log_entry    = "conf=" + std::to_string(s.last_confidence)
+                   + " ≥ threshold — acting on model output";
+    std::cout << "  [act_on_inference] " << s.action_taken << "\n";
+}
+
+// Full-capability rule-based fallback: confidence was too low to trust the model.
+static void rule_based_full_node(SensorState& s) {
+    s.classification = classify_by_rule(s.raw_value);
+    s.action_taken   = "rule-based → " + s.classification;
+    s.log_entry      = "conf=" + std::to_string(s.last_confidence)
+                     + " < threshold — deterministic fallback used";
+    std::cout << "  [rule_based]    " << s.action_taken << "\n";
+}
+
+// Degraded-mode rule-based: AI unavailable, rule-only processing.
+static void rule_based_degraded_node(SensorState& s) {
+    s.classification = classify_by_rule(s.raw_value);
+    s.action_taken   = "rule-based (degraded mode) → " + s.classification;
+    s.log_entry      = "running in degraded mode — AI unavailable";
+    std::cout << "  [rule_based]    " << s.action_taken << "\n";
+}
+
+static void log_node(SensorState& s) {
+    std::cout << "  [log]           " << s.log_entry << "\n";
+}
+
 // ─── Build the full-capability graph ─────────────────────────────────────────
+//
+// Topology:
+//   read_sensor → run_inference → [confidence_router] → {act_on_inference | rule_based} → log → END
 
 static embg::Graph<SensorState> make_full_graph() {
     embg::Graph<SensorState> g;
 
-    g
-        .add_node("read_sensor", [](SensorState& s) {
-            s.raw_value = read_temperature();
-            std::cout << "  [read_sensor]   raw=" << s.raw_value << " °C\n";
-        })
+    // ── Nodes ─────────────────────────────────────────────────────────────────
+    g.add_node("read_sensor",      read_sensor_node);
+    g.add_node("run_inference",    run_inference_node);
+    g.add_node("act_on_inference", act_on_inference_node);
+    g.add_node("rule_based",       rule_based_full_node);
+    g.add_node("log",              log_node);
 
-        .add_node("run_inference", [](SensorState& s) {
-            // Simulates a small on-device model.
-            // Clear deviation from baseline → high confidence.
-            // Near the boundary → lower confidence (model is uncertain).
-            const float deviation = std::abs(s.raw_value - 25.0f);
+    // ── Edges (declared together so the topology is visible at a glance) ────
+    g.add_edge("read_sensor",      "run_inference");
+    g.add_edge("act_on_inference", "log");
+    g.add_edge("rule_based",       "log");
+    g.add_edge("log",              embg::END);
 
-            if (deviation < 1.5f) {
-                s.classification  = "normal";
-                s.last_confidence = 0.96;
-            } else if (deviation < 3.5f) {
-                // Ambiguous zone — confidence drops below typical threshold
-                s.classification  = "elevated";
-                s.last_confidence = 0.71;
-            } else {
-                s.classification  = "critical";
-                s.last_confidence = 0.92;
-            }
+    // ── Router: run_inference → {act_on_inference | rule_based} ──────────────
+    // Confidence-gated router — the key embedded primitive.
+    // Below 0.85 → rule_based; at or above → act_on_inference.
+    g.add_conditional_edge("run_inference",
+        embg::embedded::confidence_router<SensorState>(
+            /*threshold=*/0.85,
+            /*above=*/"act_on_inference",
+            /*below=*/"rule_based"
+        ));
 
-            s.processed_value = s.raw_value;
-            std::cout << "  [run_inference] class=" << s.classification
-                      << "  conf=" << s.last_confidence << "\n";
-        })
-
-        .add_node("act_on_inference", [](SensorState& s) {
-            s.action_taken = "model-driven → " + s.classification;
-            s.log_entry    = "conf=" + std::to_string(s.last_confidence)
-                           + " ≥ threshold — acting on model output";
-            std::cout << "  [act_on_inference] " << s.action_taken << "\n";
-        })
-
-        .add_node("rule_based", [](SensorState& s) {
-            // Deterministic fallback: confidence was too low to trust the model.
-            s.classification = classify_by_rule(s.raw_value);
-            s.action_taken   = "rule-based → " + s.classification;
-            s.log_entry      = "conf=" + std::to_string(s.last_confidence)
-                             + " < threshold — deterministic fallback used";
-            std::cout << "  [rule_based]    " << s.action_taken << "\n";
-        })
-
-        .add_node("log", [](SensorState& s) {
-            std::cout << "  [log]           " << s.log_entry << "\n";
-        })
-
-        .add_edge("read_sensor", "run_inference")
-
-        // Confidence-gated router — the key embedded primitive.
-        // Below 0.85 → rule_based; at or above → act_on_inference.
-        .add_conditional_edge("run_inference",
-            embg::embedded::confidence_router<SensorState>(
-                /*threshold=*/0.85,
-                /*above=*/"act_on_inference",
-                /*below=*/"rule_based"
-            ))
-
-        .add_edge("act_on_inference", "log")
-        .add_edge("rule_based",       "log")
-        .add_edge("log",              embg::END)
-
-        .set_entry("read_sensor");
+    // ── Entry ───────────────────────────────────────────────────────────────
+    g.set_entry("read_sensor");
 
     return g;
 }
 
 // ─── Build the degraded-mode graph (no AI) ───────────────────────────────────
+//
+// Topology:
+//   read_sensor → rule_based → log → END
 
 static embg::Graph<SensorState> make_degraded_graph() {
     embg::Graph<SensorState> g;
 
-    g
-        .add_node("read_sensor", [](SensorState& s) {
-            s.raw_value = read_temperature();
-            std::cout << "  [read_sensor]   raw=" << s.raw_value << " °C\n";
-        })
-        .add_node("rule_based", [](SensorState& s) {
-            s.classification = classify_by_rule(s.raw_value);
-            s.action_taken   = "rule-based (degraded mode) → " + s.classification;
-            s.log_entry      = "running in degraded mode — AI unavailable";
-            std::cout << "  [rule_based]    " << s.action_taken << "\n";
-        })
-        .add_node("log", [](SensorState& s) {
-            std::cout << "  [log]           " << s.log_entry << "\n";
-        })
-        .add_edge("read_sensor", "rule_based")
-        .add_edge("rule_based",  "log")
-        .add_edge("log",         embg::END)
-        .set_entry("read_sensor");
+    // ── Nodes ─────────────────────────────────────────────────────────────────
+    g.add_node("read_sensor", read_sensor_node);
+    g.add_node("rule_based",  rule_based_degraded_node);
+    g.add_node("log",         log_node);
+
+    // ── Edges ────────────────────────────────────────────────────────────────
+    g.add_edge("read_sensor", "rule_based");
+    g.add_edge("rule_based",  "log");
+    g.add_edge("log",         embg::END);
+
+    // ── Entry ───────────────────────────────────────────────────────────────
+    g.set_entry("read_sensor");
 
     return g;
 }

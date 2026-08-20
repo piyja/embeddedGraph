@@ -27,6 +27,15 @@
 //                                                            └──▶ send_notify
 //                                                                 └─emit──▶ notify
 //                                                                            [external output]
+//
+// Each handler's responsibility:
+//   tick_handler           — reads the sensor, emits sensor_data
+//   log_reading_handler    — records the reading (sensor_data fan-out 1)
+//   check_threshold_handler — emits alarm if value exceeds threshold (fan-out 2)
+//   set_led_handler        — turns on the alarm LED (alarm fan-out 1)
+//   send_notify_handler    — builds notification, emits notify (alarm fan-out 2)
+//   notify_handler          — external output confirmation
+//   event_observer         — fires on every event before handlers run
 
 #include <embg/event.hpp>
 #include <cmath>
@@ -70,68 +79,91 @@ static float read_temperature_sensor() {
     return value;
 }
 
+// ─── Event handler implementations ──────────────────────────────────────────
+// Free functions so the .on() registrations read as a clean event-flow
+// overview — the "what events flow where" story is separated from the
+// "what each handler does" story.
+
+// tick → read sensor, emit sensor_data
+static void tick_handler(SensorHubState& s, embg::event::EventEmitter& emit) {
+    s.tick_count++;
+    s.current_value = read_temperature_sensor();
+    s.readings.push_back(s.current_value);
+    std::cout << "  [tick " << s.tick_count << "] sensor=" << s.current_value << " °C\n";
+    emit.emit("sensor_data", &s.current_value, sizeof(float));
+}
+
+// sensor_data → log (fan-out handler 1)
+static void log_reading_handler(SensorHubState& s, embg::event::EventEmitter&) {
+    s.log_line = "tick=" + std::to_string(s.tick_count) +
+                " value=" + std::to_string(s.current_value) + "C";
+    std::cout << "  [log] " << s.log_line << "\n";
+}
+
+// sensor_data → check threshold (fan-out handler 2)
+static void check_threshold_handler(SensorHubState& s, embg::event::EventEmitter& emit) {
+    if (s.current_value > s.threshold) {
+        std::cout << "  [threshold] " << s.current_value
+                  << " > " << s.threshold << " — ALARM\n";
+        emit.emit("alarm");
+    }
+}
+
+// alarm → set LED (fan-out handler 1)
+static void set_led_handler(SensorHubState& s, embg::event::EventEmitter&) {
+    s.led_on = true;
+    s.alarm_active = true;
+    std::cout << "  [led] ALARM LED turned ON\n";
+}
+
+// alarm → send notification (fan-out handler 2)
+static void send_notify_handler(SensorHubState& s, embg::event::EventEmitter& emit) {
+    s.notify_count++;
+    std::string msg = "ALARM: temp=" + std::to_string(s.current_value) +
+                      " at tick=" + std::to_string(s.tick_count);
+    s.notifications.push_back(msg);
+    std::cout << "  [notify] " << msg << "\n";
+    emit.emit("notify", msg.c_str(), msg.size());
+}
+
+// notify → external output (handler for the notify event)
+static void notify_handler(SensorHubState& s, embg::event::EventEmitter&) {
+    std::cout << "  [external] notification sent (total="
+              << s.notify_count << ")\n";
+}
+
+// Observer — fires on every event before handlers run
+static void event_observer(const embg::event::Event& evt, const SensorHubState&) {
+    std::cout << "  [event] → " << evt.type << "\n";
+}
+
+// ─── Build the sensor hub ────────────────────────────────────────────────────
+//
+// Each .on() is now a clean declaration: event type → handler. The fan-out
+// structure (multiple .on() per event type) is visible at a glance.
+
+static embg::event::EventGraph<SensorHubState> make_sensor_hub() {
+    embg::event::EventGraph<SensorHubState> hub;
+
+    // ── Subscribe handlers ──────────────────────────────────────────────────
+    hub
+        .on("tick",        tick_handler)
+        .on("sensor_data", log_reading_handler)       // fan-out handler 1
+        .on("sensor_data", check_threshold_handler)    // fan-out handler 2
+        .on("alarm",       set_led_handler)            // fan-out handler 1
+        .on("alarm",       send_notify_handler)        // fan-out handler 2
+        .on("notify",      notify_handler)
+        .on_event(event_observer);
+
+    return hub;
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 int main() {
     std::cout << "=== 08 Event-Driven Sensor Hub ===\n";
 
-    embg::event::EventGraph<SensorHubState> hub;
-
-    // ── Subscribe handlers ──────────────────────────────────────────────────
-
-    hub
-        // tick → read sensor, emit sensor_data
-        .on("tick", [](SensorHubState& s, embg::event::EventEmitter& emit) {
-            s.tick_count++;
-            s.current_value = read_temperature_sensor();
-            s.readings.push_back(s.current_value);
-            std::cout << "  [tick " << s.tick_count << "] sensor=" << s.current_value << " °C\n";
-            emit.emit("sensor_data", &s.current_value, sizeof(float));
-        })
-
-        // sensor_data → log (fan-out handler 1)
-        .on("sensor_data", [](SensorHubState& s, embg::event::EventEmitter&) {
-            s.log_line = "tick=" + std::to_string(s.tick_count) +
-                        " value=" + std::to_string(s.current_value) + "C";
-            std::cout << "  [log] " << s.log_line << "\n";
-        })
-
-        // sensor_data → check threshold (fan-out handler 2)
-        .on("sensor_data", [](SensorHubState& s, embg::event::EventEmitter& emit) {
-            if (s.current_value > s.threshold) {
-                std::cout << "  [threshold] " << s.current_value
-                          << " > " << s.threshold << " — ALARM\n";
-                emit.emit("alarm");
-            }
-        })
-
-        // alarm → set LED (fan-out handler 1)
-        .on("alarm", [](SensorHubState& s, embg::event::EventEmitter&) {
-            s.led_on = true;
-            s.alarm_active = true;
-            std::cout << "  [led] ALARM LED turned ON\n";
-        })
-
-        // alarm → send notification (fan-out handler 2)
-        .on("alarm", [](SensorHubState& s, embg::event::EventEmitter& emit) {
-            s.notify_count++;
-            std::string msg = "ALARM: temp=" + std::to_string(s.current_value) +
-                              " at tick=" + std::to_string(s.tick_count);
-            s.notifications.push_back(msg);
-            std::cout << "  [notify] " << msg << "\n";
-            emit.emit("notify", msg.c_str(), msg.size());
-        })
-
-        // notify → external output (handler for the notify event)
-        .on("notify", [](SensorHubState& s, embg::event::EventEmitter&) {
-            std::cout << "  [external] notification sent (total="
-                      << s.notify_count << ")\n";
-        })
-
-        // Observer — fires on every event before handlers run
-        .on_event([](const embg::event::Event& evt, const SensorHubState&) {
-            std::cout << "  [event] → " << evt.type << "\n";
-        });
+    auto hub = make_sensor_hub();
 
     // ── Run simulation: post tick events ─────────────────────────────────────
 
