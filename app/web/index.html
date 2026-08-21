@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>embg Voice Assistant</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main class="app">
+    <header class="header">
+      <div class="logo">◉</div>
+      <div class="titles">
+        <h1>Voice Assistant</h1>
+        <p class="subtitle">ASR → NLU → Router → Dialogue → TTS · powered by embeddedGraph</p>
+      </div>
+      <button id="ttsToggle" class="toggle" title="Toggle text-to-speech audio" aria-pressed="true">🔊 TTS on</button>
+    </header>
+
+    <section id="chat" class="chat" aria-live="polite"></section>
+
+    <form id="composer" class="composer" autocomplete="off">
+      <input id="input" type="text"
+             placeholder='Type something… e.g. "what time is it?"'
+             autofocus aria-label="Message" />
+      <button type="submit" id="sendBtn">Send</button>
+    </form>
+
+    <footer class="hints">
+      <span>Try:</span>
+      <button type="button" class="hint" data-text="hello there">hello there</button>
+      <button type="button" class="hint" data-text="what time is it?">what time is it?</button>
+      <button type="button" class="hint" data-text="how is the weather?">how is the weather?</button>
+      <button type="button" class="hint" data-text="tell me a joke">tell me a joke</button>
+      <button type="button" class="hint" data-text="xyzzy">xyzzy (unknown)</button>
+    </footer>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

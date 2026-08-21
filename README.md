@@ -161,6 +161,11 @@ embeddedGraph/
 │   │   └── 09_voice_assistant.cpp        # Voice assistant (ASR→NLU→arbitration→agent→TTS)
 │   ├── Makefile
 │   └── overview.html
+├── app/                         # Voice assistant demo (web UI + HTTP server)
+│   ├── include/                 # ASR / NLU / dialogue / TTS modules + graph wiring
+│   ├── src/                     # cpp-httplib server exposing the pipeline
+│   ├── web/                     # Vanilla HTML/CSS/JS chat UI with speechSynthesis TTS
+│   └── README.md
 ├── knowledge-base.mdx         # Deep research: LangGraph, FSM/HSM, automotive safety
 └── README.md
 ```
@@ -193,6 +198,16 @@ Reactive sensor processing with `EventGraph`: external tick events → sensor re
 
 ### 09 — Voice Assistant
 Full voice assistant pipeline: ASR (input) → NLU (intent classification + entity extraction) → Arbitration (confidence gate) → Router (conditional edge to matching agent) → Agent (satisfy request) → TTS (output). No AI/LLM — NLU is keyword-based, agents are rule-based. Swap NLU for an LLM node and agents for tool-calling sub-graphs to go production.
+
+## Interactive Demo — `app/`
+
+A runnable voice assistant with a browser UI: type text → watch ASR → NLU → router → dialogue stages execute on a real `embg::Graph` in the C++ server → hear the reply spoken via the Web Speech API. Each stage is a separate module (`asr.hpp`, `nlu.hpp`, `dialogue.hpp`, `tts.hpp`) wired in `pipeline.hpp`.
+
+```bash
+cd app && make run    # http://localhost:8080
+```
+
+See [app/README.md](app/README.md).
 
 ## Use Cases — Beyond AI Agents
 
