@@ -19,10 +19,33 @@
 #include <cstdlib>
 #include <iostream>
 #include <string>
+#include <unistd.h>
 
 namespace {
 
 using nlohmann::json;
+
+// Locate the web/ directory. Resolved relative to the executable so the
+// server works from any working directory (app/build/voice-assistant → app/web).
+std::string find_web_dir() {
+    char exe[4096];
+    const ssize_t len = readlink("/proc/self/exe", exe, sizeof(exe) - 1);
+    if (len > 0) {
+        exe[len] = '\0';
+        std::string dir(exe);
+        const auto slash = dir.find_last_of('/');
+        if (slash != std::string::npos) {
+            const std::string base = dir.substr(0, slash);      // .../app/build
+            const std::string parent = base + "/..";            // .../app
+            for (const std::string& candidate :
+                 { parent + "/web", base + "/web", std::string("./web") }) {
+                if (access((candidate + "/index.html").c_str(), R_OK) == 0)
+                    return candidate;
+            }
+        }
+    }
+    return "web";  // last resort — httplib will report not-found
+}
 
 } // namespace
 
@@ -34,7 +57,11 @@ int main(int argc, char** argv) {
     httplib::Server svr;
 
     // ── Static web UI ──────────────────────────────────────────────────────────
-    svr.set_mount_point("/", "web");
+    const std::string web_dir = find_web_dir();
+    if (!svr.set_mount_point("/", web_dir)) {
+        std::cerr << "Warning: could not mount web dir '" << web_dir
+                  << "' — UI will not be served\n";
+    }
 
     // ── Pipeline API ───────────────────────────────────────────────────────────
     svr.Post("/api/chat", [&pipeline](const httplib::Request& req,
