@@ -6,17 +6,17 @@
 
 | Area | Findings | Fixed | Open |
 |---|---:|---:|---:|
-| Correctness (§1) | 20 | 7 | 13 |
+| Correctness (§1) | 20 | 20 | 0 |
 | API design (§2) | 8 | 8 | 0 |
 | Missing functionality (§3) | 10 | 2 | 8 |
-| Code quality (§4) | 7 | 0 | 7 |
-| Static mode (§5) | 6 | 1 | 5 |
-| HSM (§6) | 6 | 0 | 6 |
-| Events (§7) | 8 | 0 | 8 |
+| Code quality (§4) | 7 | 1 | 6 |
+| Static mode (§5) | 6 | 3 | 3 |
+| HSM (§6) | 6 | 4 | 2 |
+| Events (§7) | 8 | 1 | 7 |
 | Inference (§8) | 9 | 0 | 9 |
 | Examples (§9) | 6 | 0 | 6 |
 | Tests and CI (§10) | 5 | 1 (partial) | 4 |
-| **Total** | **94** | **18** | **76** |
+| **Total** | **85** | **40** | **45** |
 
 ## 1. Correctness bugs
 
@@ -29,19 +29,19 @@
 | 1.5 | **HSM history is written but never read.** Re-entry always follows static `.initial`. | High | **Fixed.** Re-entry chooses the composite state’s last active child, falling back to `.initial`. |
 | 1.6 | Entry does not follow `.initial` through intermediate composite states. | Medium | **Fixed.** Entry resolves the complete nested history/initial chain. |
 | 1.7 | `StaticString<N> == const char*` can match a longer string because it compares only `N` bytes. | High | **Fixed.** Equality now compares complete null-terminated strings in both operand orders. |
-| 1.8 | `StaticMap` is unsafe in range-for: `begin()` is a pointer but `end()` is `nullptr_t`, so it can read beyond `data_`. | High | Open |
-| 1.9 | `EventGraph::process` leaves its queue dirty after an exception; the next call rethrows unless the user calls `clear()`. | Medium | Open |
-| 1.10 | `Function` moves non-trivially-copyable captures with `memcpy` (undefined behavior). | Medium | Open |
-| 1.11 | `StaticString::find(const char*, pos)` can read beyond the terminator when `pos` exceeds the length. | Medium | Open |
-| 1.12 | `StaticVector::back()` and `operator[]` lack bounds checks. | Low | Open |
-| 1.13 | HSM member scratch buffers make callbacks non-reentrant; nested dispatch can corrupt them. | Medium | Open |
-| 1.14 | `HSM::init()` does not validate cycles or dangling hierarchy references and can leave the machine partly entered. | Medium | Open |
-| 1.15 | **An HSM transition to an ancestor can leave `current()` stale.** When a child transitions to a parent with no `.initial`, the child exits but `current_` is not updated because no entry path is processed. | High | Open — reproduced with a focused assertion: after `child → parent`, `current()` remained `"child"`. |
-| 1.16 | **Default-mode `with_timeout` delays an immediate exception until the deadline.** A throwing worker never sets `done`, so the caller spins until timeout before invoking `on_timeout`; static mode invokes it immediately. | Medium | Open — reproduced: an immediate throw with a 100 ms deadline still took about 100 ms. |
-| 1.17 | **A detached timeout worker can hold dangling reference captures.** Copying `S` protects state, but a callable such as `[&device]` can outlive the referenced object after `with_timeout` returns. | High | Open |
-| 1.18 | **`StaticString::substr` can overflow `pos + len`.** A very large non-`npos` length can wrap the calculation and make the copy loop read beyond the string. | Medium | Open |
-| 1.19 | **`StaticVector::resize` can expose uninitialized elements.** It increases `size_` without constructing or value-initializing newly visible entries. | Medium | Open |
-| 1.20 | **`StaticMap` silently drops excess initializer-list entries.** Unlike `insert_or_assign`, construction beyond capacity does not report `CapacityExceeded`. | Medium | Open |
+| 1.8 | `StaticMap` is unsafe in range-for: `begin()` is a pointer but `end()` is `nullptr_t`, so it can read beyond `data_`. | High | **Fixed.** `end()` returns a past-the-end pointer (`data() + size_`); range-for and `find(...) == end()` are now well-defined. Regression-tested. |
+| 1.9 | `EventGraph::process` leaves its queue dirty after an exception; the next call rethrows unless the user calls `clear()`. | Medium | **Fixed.** An RAII guard clears the queue on every `process()` exit path, exceptions included. Regression-tested. |
+| 1.10 | `Function` moves non-trivially-copyable captures with `memcpy` (undefined behavior). | Medium | **Fixed.** A type-erased move stub move-constructs into the destination, then destroys the source; callables must be nothrow-move-constructible (static_assert). Regression-tested with a heap-capturing lambda. |
+| 1.11 | `StaticString::find(const char*, pos)` can read beyond the terminator when `pos` exceeds the length. | Medium | **Fixed.** Rejects null substrings and any `pos > size()`. Regression-tested. |
+| 1.12 | `StaticVector::back()` and `operator[]` lack bounds checks. | Low | **Fixed.** `operator[]` raises `OutOfRange`; `back()` delegates to it (empty-vector `back()` is caught too). Regression-tested. |
+| 1.13 | HSM member scratch buffers make callbacks non-reentrant; nested dispatch can corrupt them. | Medium | **Fixed.** Scratch buffers are function-local now; a nested `dispatch()` from an entry action resolves correctly. Regression-tested. |
+| 1.14 | `HSM::init()` does not validate cycles or dangling hierarchy references and can leave the machine partly entered. | Medium | **Fixed.** `init()` validates dangling parents/initials, name-key mismatch, and parent cycles before entering anything. Regression-tested. |
+| 1.15 | **An HSM transition to an ancestor can leave `current()` stale.** When a child transitions to a parent with no `.initial`, the child exits but `current_` is not updated because no entry path is processed. | High | **Fixed — ✗ reproduced, then fixed.** Transitions to ancestors update `current_` even when no entry path runs; a nested dispatch from an entry action still wins. Regression-tested. |
+| 1.16 | **Default-mode `with_timeout` delays an immediate exception until the deadline.** A throwing worker never sets `done`, so the caller spins until timeout before invoking `on_timeout`; static mode invokes it immediately. | Medium | **Fixed — ✗ reproduced, then fixed.** Worker exceptions record a `Failed` outcome; the caller joins at once and invokes `on_timeout`. Verified: immediate throw with a 100 ms deadline returns in <50 ms. |
+| 1.17 | **A detached timeout worker can hold dangling reference captures.** Copying `S` protects state, but a callable such as `[&device]` can outlive the referenced object after `with_timeout` returns. | High | **Fixed** (compile-time). Default-mode `with_timeout` static_asserts a captureless `fn`, so a detached worker can never retain references; task input belongs in `S`. |
+| 1.18 | **`StaticString::substr` can overflow `pos + len`.** A very large non-`npos` length can wrap the calculation and make the copy loop read beyond the string. | Medium | **Fixed.** The remainder is computed as `sz - pos` and `len` clamped against it. Regression-tested with a near-`npos` length. |
+| 1.19 | **`StaticVector::resize` can expose uninitialized elements.** It increases `size_` without constructing or value-initializing newly visible entries. | Medium | **Fixed.** New elements are value-initialized; over-capacity raises `CapacityExceeded`. Regression-tested. |
+| 1.20 | **`StaticMap` silently drops excess initializer-list entries.** Unlike `insert_or_assign`, construction beyond capacity does not report `CapacityExceeded`. | Medium | **Fixed.** Initializer-list construction routes through `insert_or_assign`, so overflow raises `CapacityExceeded`. Regression-tested. |
 
 ## 2. API design
 
@@ -81,7 +81,7 @@
 | 4.4 | `max_tokens + 1024` is unexplained magic padding. | Open |
 | 4.5 | Example 06 hard-codes `"stub"` despite `engine.model_name()`. | Open |
 | 4.6 | Example lambdas use mutable global/static state, making them non-reentrant. | Open |
-| 4.7 | `Function::operator() const` used `const_cast` rather than `std::function` semantics. | Open |
+| 4.7 | `Function::operator() const` used `const_cast` rather than `std::function` semantics. | **Fixed** (duplicate of §2.8). |
 
 ## 5. Static allocation: remaining gaps
 
@@ -94,15 +94,15 @@ The framework can avoid heap allocation internally, but typical user data cannot
 | 5.3 | `inference.hpp` used global `Config` rather than graph `Cfg`. | **Fixed** (§2.1). |
 | 5.4 | `LlamaCppEngine` is heap-based and not gated by `StaticAlloc`. | Open |
 | 5.5 | Static `with_timeout` discarded its deadline and callback. | **Fixed** (§1.3). |
-| 5.6 | `Function` SBO move uses invalid `memcpy` for non-trivial captures. | Open (§1.10). |
+| 5.6 | `Function` SBO move uses invalid `memcpy` for non-trivial captures. | **Fixed** (§1.10). |
 
 ## 6. HSM gaps
 
-History is non-functional (§1.5); orthogonal regions are absent; self-transitions skip entry/exit (§1.4); intermediate `.initial` states are not followed (§1.6); fork/join, entry/exit points, and choice pseudostates are missing; scratch buffers are non-reentrant (§1.13). All remain open.
+History (§1.5), UML-compliant external self-transitions (§1.4), `.initial` descent through intermediate composites (§1.6), hierarchy validation at `init()` (§1.14), and reentrant transition scratch space (§1.13) are **Fixed**. Orthogonal regions (AND-states) and fork/join, entry/exit-point, and choice/junction pseudostates remain open.
 
 ## 7. Event-layer gaps
 
-The event system is FIFO-only and lacks priorities, timers, deferred events, dead-letter handling, backpressure, typed or owned event data, subscriber priorities, post-handler observation, an HSM adapter, lifecycle controls, scheduling, and coalescing. `max_events` can also leave the queue stuck after an exception (§1.9). All remain open.
+The event system is FIFO-only and lacks priorities, timers, deferred events, dead-letter handling, backpressure, typed or owned event data, subscriber priorities, post-handler observation, an HSM adapter, lifecycle controls, scheduling, and coalescing. The queue-stuck-after-exception bug (§1.9) is **Fixed**; everything else remains open.
 
 ## 8. Inference-layer gaps
 
@@ -114,7 +114,7 @@ Examples 04/06/07 are largely the same agent loop, and 03/04 repeat the degraded
 
 ## 10. Test and CI gaps
 
-`tests/test_with_timeout.cpp` now covers fast work, timeout behavior, and exceptions in both modes. The project still lacks CI, static-analysis configuration, a correctness-focused `make check`, coverage, benchmarks, and fuzzing.
+`tests/test_with_timeout.cpp` covers fast work, deadline enforcement, immediate-exception timing, and static-mode post-hoc detection. `tests/test_hsm_and_storage.cpp` adds regression coverage for HSM semantics (external self-transitions, history, ancestor transitions, reentrant entry actions, hierarchy validation) and storage safety (`StaticMap`, `StaticVector`, `StaticString`, `Function` move), plus event-queue recovery — all built and run in both modes via `make test`. The project still lacks CI, static-analysis configuration, coverage measurement, benchmarks, and fuzzing.
 
 ## Documentation drift
 
@@ -132,9 +132,9 @@ Examples 04/06/07 are largely the same agent loop, and 03/04 repeat the degraded
 
 ## Bottom line
 
-embeddedGraph is a clean, well-organized **prototype**, not yet production- or embedded-ready. MR #1 fixed the three critical timeout issues. MR #2 fixed all eight API-design findings, including config-aware inference, safer ownership options, testable events, owned router strings, and a no-exceptions/no-RTTI build path.
+embeddedGraph is a clean, well-organized **prototype**, not yet production- or embedded-ready. MR #1 fixed the three critical timeout issues. MR #2 fixed all eight API-design findings, including config-aware inference, safer ownership options, testable events, owned router strings, and a no-exceptions/no-RTTI build path. MR #3 closed all 20 correctness findings (§1): storage-container safety, sound `Function` move semantics, exception-safe event dispatch, deadline-honoring `with_timeout`, and UML-correct HSM transitions — each backed by regression tests that pass in default and static modes.
 
-**76 of 94 findings remain open.** The most consequential gaps are remaining HSM semantics, the non-production llama.cpp integration, lack of CI/static analysis, and a demo set that reduces to roughly three distinct patterns. Every **✗** item was reproduced against the headers; it is not speculative.
+**45 of 85 line-item findings remain open.** The most consequential gaps are remaining HSM semantics (orthogonal regions, pseudostates), the non-production llama.cpp integration, lack of CI/static analysis, and a demo set that reduces to roughly three distinct patterns. Every **✗** item was reproduced against the headers; it is not speculative.
 
 ## Remediation notes
 
@@ -153,3 +153,12 @@ embeddedGraph is a clean, well-organized **prototype**, not yet production- or e
 - **Testability and ownership:** `EventEmitter::bind()` is public; `confidence_router` owns config-aware string values. `RouterFnInlineBytes` is 128 bytes to hold its capture.
 - **No-exception builds:** `error.hpp` adds `Error`, `ErrorHandler`, `set_error_handler()`, and `EMBG_ERROR`; throw sites use it. All nine examples build with `-fno-exceptions -fno-rtti -DEMBG_STATIC_ALLOC -DEMBG_NO_EXCEPTIONS`.
 - **Callable semantics:** `Function::operator()` is non-const, `const_cast` is gone, and graph visitation uses mutable references.
+
+### MR #3 — Correctness (§1)
+
+- **Storage safety:** `StaticMap::end()` returns a real past-the-end pointer so range-for is sound; initializer-list overflow raises `CapacityExceeded` via `insert_or_assign`. `StaticVector` bounds-checks `operator[]`/`back()` (`OutOfRange`) and value-initializes `resize()` growth. `StaticString::find` rejects out-of-range `pos`; `substr` clamps against `sz - pos`, killing the `pos + len` overflow.
+- **`Function`:** move construction/assignment route through a type-erased move stub (move-construct, then destroy source) instead of `memcpy`; callables must be nothrow-move-constructible. `reset()` now clears all stub pointers.
+- **Events:** `EventGraph::process` resets the queue via an RAII guard on every exit path, so a throwing handler cannot wedge later cycles.
+- **`with_timeout`:** worker outcome is a three-state atomic (`Pending/Completed/Failed`). Exceptions surface immediately — the caller joins and invokes `on_timeout` without burning the deadline. Default mode static_asserts a captureless `fn`, making detached workers structurally safe from dangling references.
+- **HSM:** `init()` validates dangling parents/initials, name-key mismatches, and parent cycles before entering. Member scratch buffers are gone — transition paths use function-local buffers, so entry actions may re-enter `dispatch()`. Ancestor transitions update `current_` when no entry path runs, while a nested dispatch from an entry action still takes precedence.
+- **Verification:** `make test` builds and runs both test binaries in default and static modes; `make check` confirms all nine examples produce identical output across modes. New regressions cover map iteration/capacity, vector bounds/resize, string find/substr edges, `Function` moves of heap-capturing lambdas, event-queue recovery after a throw, reentrant entry actions, hierarchy validation, ancestor-transition `current_`, and immediate-exception timing (<50 ms with a 100 ms deadline).

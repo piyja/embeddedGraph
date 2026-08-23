@@ -120,7 +120,7 @@ int main() {
 
         auto start = std::chrono::steady_clock::now();
         wrapped(s);
-        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        [[maybe_unused]] auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - start);
 
         std::cout << "Test 3 (throwing fn, 100ms deadline): "

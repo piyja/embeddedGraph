@@ -184,7 +184,7 @@ private:
         return false;
     }
 
-    // Lowest Common Ancestor — fills scratch_a_ with ancestors of a,
+    // Lowest Common Ancestor — collects ancestors of a into a local buffer,
     // then walks ancestors of b to find the first match.
     StringT lca(const StringT& a, const StringT& b) {
         StaticVector<StringT, Cfg::MaxHsmDepth> first_ancestors;
