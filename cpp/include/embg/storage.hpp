@@ -62,13 +62,13 @@ public:
     bool empty() const noexcept { return buf_[0] == '\0'; }
 
     bool operator==(const char* other) const noexcept {
-        return std::strncmp(buf_, other, N) == 0;
+        return other && std::strcmp(buf_, other) == 0;
     }
     bool operator==(std::string_view other) const noexcept {
         return std::string_view(buf_, size()) == other;
     }
     bool operator==(const StaticString& other) const noexcept {
-        return std::strncmp(buf_, other.buf_, N) == 0;
+        return std::strcmp(buf_, other.buf_) == 0;
     }
     bool operator==(const std::string& other) const noexcept {
         return other == buf_;

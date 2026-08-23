@@ -66,7 +66,11 @@ public:
     // ── Builder ───────────────────────────────────────────────────────────────
 
     HSM& add_state(StateConfig cfg) {
-        states_.insert_or_assign(std::move(cfg.name), std::move(cfg));
+        // Keep the descriptor name intact: history is keyed by the composite
+        // state's own name. Moving cfg.name and cfg in the same call makes the
+        // stored name dependent on argument evaluation order.
+        StringT key = cfg.name;
+        states_.insert_or_assign(std::move(key), std::move(cfg));
         return *this;
     }
 
@@ -168,12 +172,24 @@ private:
         return {};
     }
 
+    // Enter a state and then its last active child (shallow history), falling
+    // back to its configured initial child. Repeating this step handles any
+    // number of nested composite states.
     void enter_chain(const StringT& name, S& state) {
         auto& cfg = get_state(name);
         if (cfg.on_entry) cfg.on_entry(state);
         current_ = name;
-        if (!cfg.initial.empty())
-            enter_chain(cfg.initial, state);
+        enter_default_child(cfg, state);
+    }
+
+    void enter_default_child(const StateConfig& cfg, S& state) {
+        StringT child = cfg.initial;
+        auto history_it = history_.find(cfg.name);
+        if (history_it != history_.end())
+            child = history_it->second;
+
+        if (!child.empty())
+            enter_chain(child, state);
     }
 
     // ── Transition (LCA-based, UML 2.0 compliant) ─────────────────────────────
@@ -181,14 +197,19 @@ private:
     void do_transition(const StringT& from, const StringT& to, S& state) {
         if (observe_) (*observe_)(from, to, state);
 
-        const StringT pivot = lca(from, to);
+        // Returning the same state name is an external self-transition: exit
+        // and re-enter the state. INTERNAL is the explicit no-action variant.
+        const StringT pivot = (from == to) ? get_state(from).parent : lca(from, to);
 
         // Step 1: Exit from source up to (not including) LCA — innermost first
         {
             StringT cur = from;
             while (cur != pivot && !cur.empty()) {
                 auto& cfg = get_state(cur);
-                history_.insert_or_assign(cfg.parent, cur);
+                // Moving directly to a parent does not leave that composite,
+                // so it must not immediately resume the child just exited.
+                if (cfg.parent != to)
+                    history_.insert_or_assign(cfg.parent, cur);
                 if (cfg.on_exit) cfg.on_exit(state);
                 cur = cfg.parent;
             }
@@ -211,12 +232,10 @@ private:
             }
         }
 
-        // Step 3: Descend into target's initial child chain
-        {
-            auto& tcfg = get_state(to);
-            if (!tcfg.initial.empty())
-                enter_chain(tcfg.initial, state);
-        }
+        // A transition to an ancestor has no entry path, but it still changes
+        // the active leaf. Then enter that composite's history/initial path.
+        current_ = to;
+        enter_default_child(get_state(to), state);
     }
 };
 
