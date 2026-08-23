@@ -11,8 +11,8 @@
 | Area | Total Findings | Fixed | Open |
 |------|---------------|-------|------|
 | Correctness Bugs (§1) | 14 | 3 | 11 |
-| API Design Flaws (§2) | 8 | 1 | 7 |
-| Missing Functionality (§3) | 10 | 1 (partial) | 9 |
+| API Design Flaws (§2) | 8 | 8 | 0 |
+| Missing Functionality (§3) | 10 | 2 | 8 |
 | Code Smells (§4) | 7 | 0 | 7 |
 | Static Mode Gaps (§5) | 6 | 1 | 5 |
 | HSM Gaps (§6) | 6 | 0 | 6 |
@@ -20,7 +20,7 @@
 | Inference Layer Gaps (§8) | 9 | 0 | 9 |
 | Example Gaps (§9) | 6 | 0 | 6 |
 | Test/CI Gaps (§10) | 5 | 1 (partial) | 4 |
-| **Total** | **88** | **6** | **82** |
+| **Total** | **88** | **14** | **74** |
 
 ---
 
@@ -49,14 +49,14 @@
 
 | # | Flaw | Status |
 |---|------|--------|
-| 2.1 | **`inference` layer is not config-aware** — `inference.hpp:25-26`. `PromptString` hardcodes `embg::Config::StaticAlloc`, ignoring the `Cfg` of `make_node`/`Graph`. `embg::Graph<S, MyCustomConfig>` cannot influence prompt storage. | Open |
-| 2.2 | **`make_node` captures the engine by raw reference** — `inference.hpp:201-214`. Lifetime footgun: engine must outlive the graph; no `shared_ptr` option, no documentation. | Open |
-| 2.3 | **`DegradedModeRunner` stores raw `Graph*`** — `embedded.hpp:90-95`. Dangling pointer if graphs leave scope before the runner is used. | Open |
+| 2.1 | **`inference` layer is not config-aware** — `inference.hpp:25-26`. `PromptString` hardcodes `embg::Config::StaticAlloc`, ignoring the `Cfg` of `make_node`/`Graph`. `embg::Graph<S, MyCustomConfig>` cannot influence prompt storage. | **Fixed** — `PromptStringT<Cfg>`, `RequestT<Cfg>`, `ResponseT<Cfg>`, `InferenceEngineT<Cfg>`, `StubEngineT<Cfg>`, `LlamaCppEngineT<Cfg>` are all templated on Cfg. `make_node<S, Cfg>` now uses `RequestT<Cfg>`/`ResponseT<Cfg>`, matching the graph's config. Backward-compatible aliases (`Request`, `Response`, `InferenceEngine`, `StubEngine`) provided for default config. |
+| 2.2 | **`make_node` captures the engine by raw reference** — `inference.hpp:201-214`. Lifetime footgun: engine must outlive the graph; no `shared_ptr` option, no documentation. | **Fixed** — added `make_node_shared()` overload that captures `std::shared_ptr<InferenceEngineT<Cfg>>` (default mode only). Raw-reference `make_node` now has explicit lifetime documentation. |
+| 2.3 | **`DegradedModeRunner` stores raw `Graph*`** — `embedded.hpp:90-95`. Dangling pointer if graphs leave scope before the runner is used. | **Fixed** — added `add_level_shared()` overload with `std::shared_ptr<Graph>` (default mode). Added `clear_level()` for deregistration. Added null-pointer check in `run()`. Lifetime contract documented. Static mode keeps raw reference (no heap). |
 | 2.4 | **`with_timeout` accepted an `on_timeout` it silently ignored in static mode** — no `static_assert`, no warning. The API lied. | **Fixed** — static mode now calls `on_timeout` when deadline exceeded. Also changed to template params (`Fn&&`, `OnTimeout&&`) to avoid SBO size blowup from capturing two pre-type-erased `NodeFn` objects. |
-| 2.5 | **`EventEmitter` has a private constructor + friend `EventGraph`** — `event.hpp:56-83`. Handlers can't be unit-tested without an `EventGraph` instance. | Open |
-| 2.6 | **`confidence_router` captures `const char*` `above`/`below`** — caller must pass persistent storage; passing `std::string("").c_str()` dangles. Undocumented at the boundary. | Open |
-| 2.7 | **All error handling is `throw std::runtime_error`** — no error-code API, no `noexcept` path, no `-fno-exceptions`/`-fno-rtti` mode. MISRA C++:2023 (cited in the README) forbids exceptions; the framework is unbuildable for the safety standard it name-drops. | Open |
-| 2.8 | **`Function::operator() const` does `const_cast`** — concurrent const calls to the same node = data race; single-threaded-only is undocumented. | Open |
+| 2.5 | **`EventEmitter` has a private constructor + friend `EventGraph`** — `event.hpp:56-83`. Handlers can't be unit-tested without an `EventGraph` instance. | **Fixed** — `EventEmitter::bind()` is now public with a default constructor. Unit tests can create an `EventEmitter` bound to any queue with `push_back(const Event&)`. Documented as public for testability. |
+| 2.6 | **`confidence_router` captures `const char*` `above`/`below`** — caller must pass persistent storage; passing `std::string("").c_str()` dangles. Undocumented at the boundary. | **Fixed** — `confidence_router` now accepts `embg::detail::String<Cfg>` by value (owns the data). In default mode: `std::string`; in static mode: `StaticString<32>`. No dangling risk from temporaries. Existing `const char*` call sites work via implicit construction. |
+| 2.7 | **All error handling is `throw std::runtime_error`** — no error-code API, no `noexcept` path, no `-fno-exceptions`/`-fno-rtti` mode. MISRA C++:2023 (cited in the README) forbids exceptions; the framework is unbuildable for the safety standard it name-drops. | **Fixed** — new `error.hpp` provides `embg::Error` enum, `embg::ErrorHandler` callback, `set_error_handler()`, and `EMBG_ERROR(code, msg)` macro. With `-DEMBG_NO_EXCEPTIONS`, all throws become handler calls (default: `std::abort()`). Verified: all 9 examples build with `-fno-exceptions -fno-rtti -DEMBG_STATIC_ALLOC -DEMBG_NO_EXCEPTIONS`. |
+| 2.8 | **`Function::operator() const` does `const_cast`** — concurrent const calls to the same node = data race; single-threaded-only is undocumented. | **Fixed** — `operator()` is now non-const. The stored callable may be mutable (e.g. lambdas with mutable captures), so calling it IS a mutation. `const_cast` removed from `invoke_stub`. `std::visit` in `graph.hpp` updated to use `auto&` instead of `const auto&`. Thread safety documented: not concurrent-call safe, matches `std::function`. |
 
 ---
 
@@ -65,7 +65,7 @@
 | # | Gap | Status |
 |---|-----|--------|
 | 3.1 | **No real timeout/cancellation primitive** — see §1.1–1.3. | **Partially fixed** — default mode now truly preemptive (std::thread + detach). Static mode is post-hoc (non-preemptive but calls on_timeout). Full RTOS task cancellation still open. |
-| 3.2 | **No `-fno-exceptions` / `-fno-rtti` / freestanding build** — every error path throws. | Open |
+| 3.2 | **No `-fno-exceptions` / `-fno-rtti` / freestanding build** — every error path throws. | **Fixed** — `EMBG_NO_EXCEPTIONS` mode replaces all throws with configurable error handler. Verified: all 9 examples build with `-fno-exceptions -fno-rtti -DEMBG_STATIC_ALLOC -DEMBG_NO_EXCEPTIONS`. Freestanding (no libc) still open. |
 | 3.3 | **No HSM orthogonal regions** — no AND-states. The Harel/QP citation is misleading. | Open |
 | 3.4 | **No HSM fork/join, entry/exit-point, choice/junction pseudostates; no deferred events.** | Open |
 | 3.5 | **No event priorities / timers / deferred dispatch** in EventGraph — FIFO only. | Open |
@@ -219,15 +219,15 @@ The static mode is a half-measure: it makes the framework's bookkeeping heap-fre
 
 The library is a clean, well-organized **prototype** with good aesthetic structure (config-conditional aliases, SBO callable, builder API) but it is **not production-ready and not embedded-ready**. 
 
-**What's fixed in this MR:** The two most critical bugs — `with_timeout` not enforcing deadlines in default mode (1.1, 1.2) and being a silent no-op in static mode (1.3) — are now fixed and verified by `tests/test_with_timeout.cpp`. The `with_timeout` API was also refactored to use template parameters instead of pre-type-erased `NodeFn`, avoiding SBO size blowup.
+**What's fixed across MR #1 + MR #2:** 14 of 88 findings now fixed. MR #1 fixed the 3 critical `with_timeout` bugs (1.1, 1.2, 1.3). MR #2 fixes all 8 API Design Flaws (§2): the inference layer is now config-aware (2.1), `make_node` has a `shared_ptr` overload (2.2), `DegradedModeRunner` has `shared_ptr` + null-check (2.3), `EventEmitter` is testable (2.5), `confidence_router` owns its strings (2.6), the framework builds with `-fno-exceptions -fno-rtti` (2.7/3.2), and `Function::operator()` is non-const (2.8). The MISRA-disqualifying absence of a no-exceptions build path is now resolved.
 
-**What's still broken:** 82 of 88 findings remain open. The HSM advertises history and cites Harel/QP but ships no orthogonal regions and a non-functional history map. The llama.cpp integration would not produce coherent output from any real model. There is no CI, no static analysis, no `-fno-exceptions` build. The `StaticString` comparison bug (1.7) causes a `make check` failure on example 01 in static mode. The 9 examples collapse to ~3 distinct demos. For a safety-critical/embedded pitch that name-drops MISRA, ASIL, and Samek's QP, the absence of a no-exceptions build path alone is disqualifying.
+**What's still broken:** 74 of 88 findings remain open. The HSM advertises history and cites Harel/QP but ships no orthogonal regions and a non-functional history map. The llama.cpp integration would not produce coherent output from any real model. There is no CI, no static analysis. The `StaticString` comparison bug (1.7) causes a `make check` failure on example 01 in static mode. The 9 examples collapse to ~3 distinct demos.
 
 Every bug marked ✗ was reproduced by compiling and running a small test against the headers — they are real, not theoretical.
 
 ---
 
-## Fixes in This MR
+## Fixes in MR #1: with_timeout Deadline Enforcement
 
 ### Bug 1.1 + 1.2: `with_timeout` doesn't enforce deadline (default mode)
 
@@ -262,3 +262,66 @@ Three test cases covering both modes:
 1. Fast fn within deadline → result committed, no timeout
 2. Slow fn exceeds deadline → on_timeout fires, caller doesn't block (default) / fn completes then fallback (static)
 3. Throwing fn → on_timeout fires, no crash
+
+---
+
+## Fixes in MR #2: API Design Flaws (§2)
+
+### 2.1: Inference layer not config-aware
+
+**Root cause:** `PromptString` at `inference.hpp:25-26` hardcoded `embg::Config::StaticAlloc` and `embg::Config::MaxPromptLen`, ignoring the `Cfg` template parameter of `make_node`/`Graph`.
+
+**Fix:** Templated all inference types on `Cfg` with default = `embg::Config`:
+- `PromptStringT<Cfg>`, `RequestT<Cfg>`, `ResponseT<Cfg>` — config-aware prompt storage
+- `InferenceEngineT<Cfg>`, `StubEngineT<Cfg>`, `LlamaCppEngineT<Cfg>` — config-aware engine hierarchy
+- `make_node<S, Cfg>` now uses `RequestT<Cfg>`/`ResponseT<Cfg>`, matching the graph's config
+- Backward-compatible aliases (`Request`, `Response`, `InferenceEngine`, `StubEngine`, `LlamaCppEngine`) provided for default config — existing code unchanged
+
+### 2.2: make_node captures engine by raw reference
+
+**Root cause:** `make_node` captured `&engine` by reference with no `shared_ptr` option and no lifetime documentation.
+
+**Fix:** Added `make_node_shared()` overload (default mode only) that captures `std::shared_ptr<InferenceEngineT<Cfg>>` — no dangling risk. Raw-reference `make_node` now has explicit lifetime documentation: "The engine MUST outlive the graph."
+
+### 2.3: DegradedModeRunner stores raw Graph*
+
+**Root cause:** `add_level(CapabilityLevel, Graph&)` stored `&graph` as raw pointer with no null check and no deregistration.
+
+**Fix:** Added `add_level_shared()` overload (default mode) with `std::shared_ptr<Graph>`. Added `clear_level()` for deregistration. Added null-pointer check in `run()`. Lifetime contract documented. Static mode keeps raw reference (shared_ptr is heap-based).
+
+### 2.5: EventEmitter private constructor
+
+**Root cause:** Constructor was private with only `EventGraph` as friend. `bind()` was private. Could not create an `EventEmitter` in unit tests without an `EventGraph` instance.
+
+**Fix:** Made `bind()` public with a default constructor. Unit tests can now create an `EventEmitter` bound to any queue with `push_back(const Event&)`. Documented as public for testability.
+
+### 2.6: confidence_router captures const char* (dangling)
+
+**Root cause:** `confidence_router(double, const char* above, const char* below)` captured raw `const char*` pointers. Passing `std::string("...").c_str()` or other temporaries dangles.
+
+**Fix:** Changed to accept `embg::detail::String<Cfg>` by value — owns the data. In default mode: `std::string`; in static mode: `StaticString<32>`. No dangling risk. Existing `const char*` call sites work via implicit construction. Added `RouterFnInlineBytes=128` to config to accommodate the larger capture (two `StaticString<32>` + double = 80 bytes).
+
+### 2.7: All error handling is throw (no -fno-exceptions path)
+
+**Root cause:** Every error path used `throw std::runtime_error(...)`. No error-code API, no `noexcept` path, no `-fno-exceptions`/`-fno-rtti` mode. MISRA C++:2023 forbids exceptions.
+
+**Fix:** New `error.hpp` provides:
+- `embg::Error` enum (CapacityExceeded, UnknownNode, NoEntry, MaxStepsExceeded, etc.)
+- `embg::ErrorHandler` function pointer type
+- `embg::set_error_handler()` to register custom handler
+- `embg::default_error_handler()` — prints to stderr + std::abort()
+- `EMBG_ERROR(code, msg)` macro — throws by default, calls handler with `-DEMBG_NO_EXCEPTIONS`
+
+All `throw std::runtime_error(...)` sites in `storage.hpp`, `graph.hpp`, `hsm.hpp`, `embedded.hpp`, `event.hpp`, `inference.hpp` replaced with `EMBG_ERROR(code, msg)`.
+
+**Verification:** All 9 examples build with `-fno-exceptions -fno-rtti -DEMBG_STATIC_ALLOC -DEMBG_NO_EXCEPTIONS`.
+
+### 2.8: Function::operator() const does const_cast
+
+**Root cause:** `operator()` was const but did `const_cast` to call mutable lambdas. Concurrent const calls to the same `Function` = data race.
+
+**Fix:** Made `operator()` non-const. Removed `const_cast` from `invoke_stub`. Changed `invoke_` function pointer signature from `Ret(*)(const void*, Args&&...)` to `Ret(*)(void*, Args&&...)`. Updated `std::visit` in `graph.hpp` to use `auto&` instead of `const auto&`. Thread safety documented: not concurrent-call safe, matches `std::function`.
+
+### Config change: RouterFnInlineBytes
+
+Added `RouterFnInlineBytes = 128` to both `DefaultConfig` and `StaticConfig`. `RouterFn` now uses this instead of `FnInlineBytes` for its SBO size, accommodating `confidence_router`'s owned-string capture without inflating all other `Function` instantiations.
