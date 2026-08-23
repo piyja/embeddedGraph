@@ -89,6 +89,8 @@ public:
     void init(S& state) {
         if (initial_.empty())
             EMBG_ERROR(NoInitialState, "embg::hsm: no initial state set");
+        validate();
+        current_ = {};
         enter_chain(initial_, state);
     }
 
@@ -106,7 +108,8 @@ public:
                 if (result == INTERNAL)  return;
 
                 if (result != UNHANDLED) {
-                    do_transition(current_, result, state);
+                    const StringT source = current_;
+                    do_transition(source, result, state);
                     return;
                 }
             }
@@ -127,12 +130,6 @@ private:
     std::optional<ObserveFn>    observe_;
     HistoryMap                  history_;
 
-    // Scratch buffers for transition computation — avoids heap alloc per transition.
-    // Non-reentrant: a single HSM instance must not be called recursively.
-    StaticVector<StringT, Cfg::MaxHsmDepth>  scratch_a_;
-    StaticVector<StringT, Cfg::MaxHsmDepth>  scratch_b_;
-    StaticVector<StringT, Cfg::MaxHsmDepth>  entry_path_;
-
     // ── Internal helpers ──────────────────────────────────────────────────────
 
     StateConfig& get_state(const StringT& name) {
@@ -142,19 +139,47 @@ private:
         return it->second;
     }
 
-    // Fill scratch_a_ with ancestors of name, leaf-to-root
-    void ancestors(const StringT& name) {
-        scratch_a_.clear();
+    void validate() {
+        if (states_.find(initial_) == states_.end())
+            EMBG_ERROR(InvalidHsm, "embg::hsm: initial state is not registered");
+
+        for (const auto& [name, cfg] : states_) {
+            if (cfg.name != name)
+                EMBG_ERROR(InvalidHsm, "embg::hsm: state name does not match its key");
+            if (!cfg.parent.empty() && states_.find(cfg.parent) == states_.end())
+                EMBG_ERROR(InvalidHsm, "embg::hsm: parent state is not registered");
+            if (!cfg.initial.empty()) {
+                auto initial_it = states_.find(cfg.initial);
+                if (initial_it == states_.end() || initial_it->second.parent != name)
+                    EMBG_ERROR(InvalidHsm, "embg::hsm: initial state must be a direct child");
+            }
+
+            StaticVector<StringT, Cfg::MaxHsmDepth> seen;
+            StringT current = name;
+            while (!current.empty()) {
+                for (const auto& visited : seen) {
+                    if (visited == current)
+                        EMBG_ERROR(InvalidHsm, "embg::hsm: cycle in parent hierarchy");
+                }
+                seen.push_back(current);
+                current = get_state(current).parent;
+            }
+        }
+    }
+
+    // Fill a local buffer with ancestors of name, leaf-to-root.
+    void ancestors(const StringT& name, StaticVector<StringT, Cfg::MaxHsmDepth>& out) {
+        out.clear();
         StringT cur = name;
         while (!cur.empty()) {
-            scratch_a_.push_back(cur);
+            out.push_back(cur);
             cur = get_state(cur).parent;
         }
     }
 
-    // Check if key is in scratch_a_
-    bool in_ancestors(const StringT& key) const {
-        for (const auto& s : scratch_a_)
+    bool in_ancestors(const StringT& key,
+                      const StaticVector<StringT, Cfg::MaxHsmDepth>& ancestors) const {
+        for (const auto& s : ancestors)
             if (s == key) return true;
         return false;
     }
@@ -162,11 +187,11 @@ private:
     // Lowest Common Ancestor — fills scratch_a_ with ancestors of a,
     // then walks ancestors of b to find the first match.
     StringT lca(const StringT& a, const StringT& b) {
-        ancestors(a);
-        scratch_b_.clear();
+        StaticVector<StringT, Cfg::MaxHsmDepth> first_ancestors;
+        ancestors(a, first_ancestors);
         StringT cur = b;
         while (!cur.empty()) {
-            if (in_ancestors(cur)) return cur;
+            if (in_ancestors(cur, first_ancestors)) return cur;
             cur = get_state(cur).parent;
         }
         return {};
@@ -177,8 +202,8 @@ private:
     // number of nested composite states.
     void enter_chain(const StringT& name, S& state) {
         auto& cfg = get_state(name);
-        if (cfg.on_entry) cfg.on_entry(state);
         current_ = name;
+        if (cfg.on_entry) cfg.on_entry(state);
         enter_default_child(cfg, state);
     }
 
@@ -217,24 +242,26 @@ private:
 
         // Step 2: Enter from LCA's child down to target — outermost first
         {
-            entry_path_.clear();
+            StaticVector<StringT, Cfg::MaxHsmDepth> entry_path;
             StringT cur = to;
             while (cur != pivot && !cur.empty()) {
-                entry_path_.push_back(cur);
+                entry_path.push_back(cur);
                 cur = get_state(cur).parent;
             }
-            entry_path_.reverse();
+            entry_path.reverse();
 
-            for (const auto& s : entry_path_) {
+            for (const auto& s : entry_path) {
                 auto& cfg = get_state(s);
-                if (cfg.on_entry) cfg.on_entry(state);
                 current_ = s;
+                if (cfg.on_entry) cfg.on_entry(state);
             }
         }
 
         // A transition to an ancestor has no entry path, but it still changes
-        // the active leaf. Then enter that composite's history/initial path.
-        current_ = to;
+        // the active leaf. An entry callback may have dispatched recursively;
+        // preserve that nested transition instead of overwriting its current state.
+        if (current_ == from) current_ = to;
+        if (current_ != to) return;
         enter_default_child(get_state(to), state);
     }
 };

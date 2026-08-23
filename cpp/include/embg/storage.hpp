@@ -21,6 +21,7 @@
 #include <cstddef>
 #include <cstring>
 #include <functional>
+#include <new>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -75,6 +76,7 @@ public:
     }
 
     std::size_t find(const char* sub, std::size_t pos = 0) const noexcept {
+        if (!sub || pos > size()) return npos;
         const char* p = std::strstr(buf_ + pos, sub);
         return p ? static_cast<std::size_t>(p - buf_) : npos;
     }
@@ -88,7 +90,7 @@ public:
         StaticString out;
         std::size_t sz = size();
         if (pos >= sz) return out;
-        std::size_t copy = (len == npos || pos + len > sz) ? sz - pos : len;
+        std::size_t copy = (len == npos || len > sz - pos) ? sz - pos : len;
         std::size_t i = 0;
         for (; i < N && i < copy; ++i) out.buf_[i] = buf_[pos + i];
         out.buf_[i] = '\0';
@@ -130,7 +132,7 @@ std::ostream& operator<<(std::ostream& os, const StaticString<N>& s) {
 template<typename T, std::size_t Cap>
 class StaticVector {
 public:
-    StaticVector() noexcept : size_(0) {}
+    StaticVector() noexcept : data_{}, size_(0) {}
 
     void push_back(T v) {
         if (size_ < Cap)
@@ -142,13 +144,26 @@ public:
     void pop_back() noexcept { if (size_ > 0) --size_; }
 
     void clear() noexcept { size_ = 0; }
-    void resize(std::size_t n) noexcept { size_ = (n <= Cap) ? n : Cap; }
+    void resize(std::size_t n) {
+        if (n > Cap) {
+            EMBG_ERROR(CapacityExceeded, "StaticVector: capacity exceeded");
+            return;
+        }
+        for (std::size_t i = size_; i < n; ++i) data_[i] = T{};
+        size_ = n;
+    }
 
-    T&       operator[](std::size_t i)       { return data_[i]; }
-    const T& operator[](std::size_t i) const { return data_[i]; }
+    T& operator[](std::size_t i) {
+        if (i >= size_) EMBG_ERROR(OutOfRange, "StaticVector: index out of range");
+        return data_[i];
+    }
+    const T& operator[](std::size_t i) const {
+        if (i >= size_) EMBG_ERROR(OutOfRange, "StaticVector: index out of range");
+        return data_[i];
+    }
 
-    T&       back()       { return data_[size_ - 1]; }
-    const T& back() const { return data_[size_ - 1]; }
+    T& back() { return (*this)[size_ - 1]; }
+    const T& back() const { return (*this)[size_ - 1]; }
 
     std::size_t size()     const noexcept { return size_; }
     bool        empty()    const noexcept { return size_ == 0; }
@@ -177,14 +192,9 @@ class StaticMap {
 public:
     StaticMap() noexcept : size_(0) {}
 
-    StaticMap(std::initializer_list<std::pair<K, V>> init) noexcept : size_(0) {
-        for (const auto& entry : init) {
-            if (size_ < Cap) {
-                data_[size_].first  = entry.first;
-                data_[size_].second = entry.second;
-                ++size_;
-            }
-        }
+    StaticMap(std::initializer_list<std::pair<K, V>> init) : size_(0) {
+        for (const auto& entry : init)
+            insert_or_assign(entry.first, entry.second);
     }
 
     void insert_or_assign(K key, V val) {
@@ -203,28 +213,25 @@ public:
         }
     }
 
-    // find returns pointer to pair — compatible with it->second pattern.
-    // end() returns nullptr — so `it == end()` works as `ptr == nullptr`.
+    // find returns a past-the-end pointer on a miss, matching std::map.
     std::pair<K, V>* find(const K& key) noexcept {
         for (std::size_t i = 0; i < size_; ++i)
             if (data_[i].first == key) return &data_[i];
-        return nullptr;
+        return end();
     }
     const std::pair<K, V>* find(const K& key) const noexcept {
         for (std::size_t i = 0; i < size_; ++i)
             if (data_[i].first == key) return &data_[i];
-        return nullptr;
+        return end();
     }
-
-    static constexpr nullptr_t end() noexcept { return nullptr; }
 
     std::size_t size()  const noexcept { return size_; }
     bool        empty() const noexcept { return size_ == 0; }
 
     auto begin()       { return data_.data(); }
-    auto end_ptr()     { return data_.data() + size_; }
+    auto end()         { return data_.data() + size_; }
     auto begin() const { return data_.data(); }
-    auto end_ptr() const { return data_.data() + size_; }
+    auto end() const   { return data_.data() + size_; }
 
 private:
     std::array<std::pair<K, V>, Cap> data_;
@@ -256,10 +263,13 @@ public:
             "increase FnInlineBytes in your config");
         static_assert(alignof(Decayed) <= alignof(std::max_align_t),
             "embg::Function: callable alignment too high");
+        static_assert(std::is_nothrow_move_constructible_v<Decayed>,
+            "embg::Function: callable must be nothrow move constructible");
         new (&storage_) Decayed(std::forward<F>(f));
         invoke_ = &invoke_stub<Decayed>;
         destroy_ = &destroy_stub<Decayed>;
         copy_ = &copy_stub<Decayed>;
+        move_ = &move_stub<Decayed>;
     }
 
     Function(const Function& other) : invoke_(other.invoke_) {
@@ -267,14 +277,16 @@ public:
             other.copy_(&other.storage_, &storage_);
             destroy_ = other.destroy_;
             copy_ = other.copy_;
+            move_ = other.move_;
         }
     }
 
     Function(Function&& other) noexcept : invoke_(other.invoke_) {
         if (other.invoke_) {
-            std::memcpy(&storage_, &other.storage_, InlineBytes);
+            other.move_(&other.storage_, &storage_);
             destroy_ = other.destroy_;
             copy_ = other.copy_;
+            move_ = other.move_;
             other.invoke_ = nullptr;
         }
     }
@@ -287,6 +299,7 @@ public:
                 invoke_ = other.invoke_;
                 destroy_ = other.destroy_;
                 copy_ = other.copy_;
+                move_ = other.move_;
             }
         }
         return *this;
@@ -296,10 +309,11 @@ public:
         if (this != &other) {
             reset();
             if (other.invoke_) {
-                std::memcpy(&storage_, &other.storage_, InlineBytes);
+                other.move_(&other.storage_, &storage_);
                 invoke_ = other.invoke_;
                 destroy_ = other.destroy_;
                 copy_ = other.copy_;
+                move_ = other.move_;
                 other.invoke_ = nullptr;
             }
         }
@@ -328,10 +342,14 @@ private:
     Ret   (*invoke_)(void*, Args&&...)       = nullptr;
     void  (*destroy_)(void*)                 = nullptr;
     void  (*copy_)(const void*, void*)       = nullptr;
+    void  (*move_)(void*, void*) noexcept     = nullptr;
 
     void reset() noexcept {
         if (invoke_ && destroy_) destroy_(&storage_);
         invoke_ = nullptr;
+        destroy_ = nullptr;
+        copy_ = nullptr;
+        move_ = nullptr;
     }
 
     template<typename F>
@@ -347,6 +365,12 @@ private:
     template<typename F>
     static void copy_stub(const void* src, void* dst) {
         new (dst) F(*static_cast<const F*>(src));
+    }
+
+    template<typename F>
+    static void move_stub(void* src, void* dst) noexcept {
+        new (dst) F(std::move(*static_cast<F*>(src)));
+        static_cast<F*>(src)->~F();
     }
 };
 

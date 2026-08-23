@@ -32,6 +32,7 @@ enum class Error {
     // Storage
     CapacityExceeded,
     EmptyFunction,
+    OutOfRange,
 
     // Graph
     UnknownNode,
@@ -41,6 +42,7 @@ enum class Error {
     // HSM
     UnknownState,
     NoInitialState,
+    InvalidHsm,
 
     // Event
     MaxEventsExceeded,
@@ -95,11 +97,13 @@ inline void embg::default_error_handler(Error code, const char* message) noexcep
     switch (code) {
         case Error::CapacityExceeded:   label = "capacity exceeded"; break;
         case Error::EmptyFunction:      label = "call on empty function"; break;
+        case Error::OutOfRange:         label = "index out of range"; break;
         case Error::UnknownNode:        label = "unknown node"; break;
         case Error::NoEntry:            label = "no entry node"; break;
         case Error::MaxStepsExceeded:   label = "max steps exceeded"; break;
         case Error::UnknownState:       label = "unknown HSM state"; break;
         case Error::NoInitialState:     label = "no initial state"; break;
+        case Error::InvalidHsm:         label = "invalid HSM configuration"; break;
         case Error::MaxEventsExceeded:  label = "max events exceeded"; break;
         case Error::EngineUnavailable:  label = "engine unavailable"; break;
         case Error::NoGraphRegistered:  label = "no graph registered"; break;

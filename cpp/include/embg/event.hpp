@@ -180,6 +180,11 @@ public:
     //   - max_events reached (safety bound against infinite event loops)
     //
     std::size_t process(S& state, std::size_t max_events = 100) {
+        struct QueueReset {
+            EventGraph& graph;
+            ~QueueReset() { graph.clear(); }
+        } reset{*this};
+
         EventEmitter emitter = EventEmitter::bind(&queue_);
         std::size_t processed = 0;
 
@@ -203,9 +208,6 @@ public:
             }
         }
 
-        // Reset queue for next cycle
-        queue_.clear();
-        head_ = 0;
         return processed;
     }
 

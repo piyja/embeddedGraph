@@ -1,3 +1,5 @@
 app/build/
 cpp/build/
 cpp/build_static/
+cpp/build_static/*
+cpp/build/*
