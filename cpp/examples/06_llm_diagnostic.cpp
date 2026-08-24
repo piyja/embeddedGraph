@@ -9,18 +9,11 @@
 //   # Stub (default)
 //   g++ -std=c++20 -I include examples/06_llm_diagnostic.cpp -o build/06_llm_diagnostic
 //
-//   # Real llama.cpp (after building llama.cpp and downloading a GGUF model,
-//   # run as one line):
+//   # Real llama.cpp (after building llama.cpp and downloading a GGUF model):
 //   g++ -std=c++20 -DEMBG_WITH_LLAMACPP
 //       -I include -I /path/to/llama.cpp/include
 //       examples/06_llm_diagnostic.cpp -o build/06_llm_diagnostic
 //       -L /path/to/llama.cpp/build -lllama -lpthread
-//
-// Recommended small models for embedded/edge targets:
-//   Phi-3 Mini 3.8B Q4  — good reasoning, 2GB VRAM or CPU
-//   Qwen2.5 0.5B Q8     — very fast, ~500MB, suited for MCU with NPU
-//   Gemma 2 2B Q4       — strong instruction following, 1.5GB
-//   TinyLlama 1.1B Q4   — smallest, Cortex-A series target
 //
 // Graph topology:
 //
@@ -29,109 +22,49 @@
 //     │                                          conf < 0.85      │
 //     └──────────────────────────────────────────────────────────┘
 //                                         conf >= 0.85 ──▶ report_fault ──▶ END
-//
-// Each stage's responsibility:
-//   agent          — picks the next diagnostic tool from TOOL_SEQ
-//   tool_execute   — dispatches to the tool registry, appends to evidence
-//   run_inference  — calls the InferenceEngine via embg::inference::make_node()
-//   report_fault   — formats and prints the diagnostic report
 
 #include <embg/graph.hpp>
 #include <embg/embedded.hpp>
 #include <embg/inference.hpp>
+#include "automotive_tools.hpp"
 #include <iostream>
 #include <sstream>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
-// ─── State ───────────────────────────────────────────────────────────────────
+using State = automotive::DiagnosticState;
 
-struct DiagnosticState {
-    // Input
-    std::string anomaly_code = {};
-    std::string vehicle_vin  = {};
+// ─── Tool sequence (subset — no actuator test needed for inference demo) ─────
 
-    // Agent control
-    std::string next_action  = {};
-    std::string tool_name    = {};
-    int         iteration    = 0;
-
-    // Evidence
-    std::vector<std::string> observations = {};
-
-    // Inference output — last_confidence required by ConfidenceState
-    double      last_confidence   = 0.0;
-    std::string fault_description = {};
-    std::string severity          = {};
-    std::string raw_llm_output    = {};
-
-    // Final report
-    std::string report = {};
-};
-
-static_assert(embg::embedded::ConfidenceState<DiagnosticState>);
-
-// ─── Simulated tool implementations (same as example 04) ─────────────────────
-
-static std::string tool_read_can_bus(const std::string& code) {
-    return "CAN O2_S1=0.991V rich excursion code=" + code
-         + " ECT=110°C TPS=47%";
-}
-static std::string tool_check_dtc(const std::string& code) {
-    static const std::unordered_map<std::string, std::string> db = {
-        {"P0420", "Catalyst System Efficiency Below Threshold (Bank 1)"},
-        {"P0171", "System Too Lean (Bank 1)"},
-        {"P0300", "Random/Multiple Cylinder Misfire Detected"},
-    };
-    auto it = db.find(code);
-    return "DTC " + code + ": " + (it != db.end() ? it->second : "Unknown");
-}
-static std::string tool_read_live_pid(const std::string&) {
-    return "FuelTrim ST=-3.9% LT=-6.3% O2_S2=0.712V (post-cat low) RPM=820";
-}
-
-using ToolFn = std::string(*)(const std::string&);
-static const std::unordered_map<std::string, ToolFn> TOOLS = {
-    {"read_can_bus",  tool_read_can_bus},
-    {"check_dtc",     tool_check_dtc},
-    {"read_live_pid", tool_read_live_pid},
-};
 static const std::vector<std::string> TOOL_SEQ = {
     "read_can_bus", "check_dtc", "read_live_pid"
 };
 
 // ─── Node implementations ─────────────────────────────────────────────────────
-// Free functions so the graph builder reads as pure topology.
 
-static void agent_node(DiagnosticState& s) {
+static void agent_node(State& s) {
     s.iteration++;
     const auto idx = static_cast<std::size_t>(s.iteration - 1);
     if (idx < TOOL_SEQ.size()) {
         s.next_action = "use_tool";
         s.tool_name   = TOOL_SEQ[idx];
         std::cout << "  [agent] step=" << s.iteration
-                  << " → calling: " << s.tool_name << "\n";
+                  << " -> calling: " << s.tool_name << "\n";
     } else {
         s.next_action = "finish";
-        std::cout << "  [agent] tools exhausted → forcing report\n";
+        std::cout << "  [agent] tools exhausted -> forcing report\n";
     }
 }
 
-static void tool_execute_node(DiagnosticState& s) {
-    auto it = TOOLS.find(s.tool_name);
-    std::string result = (it != TOOLS.end())
-        ? it->second(s.anomaly_code)
-        : "[tool not found]";
+static void tool_execute_node(State& s) {
+    std::string result = automotive::run_tool(s.tool_name, s.anomaly_code);
     s.observations.push_back("[" + s.tool_name + "] " + result);
     std::cout << "  [tool] " << result.substr(0, 80) << "\n";
 }
 
 // ─── Inference: prompt builder + response handler ────────────────────────────
-// These are passed to embg::inference::make_node() to wrap the engine into a
-// NodeFn<DiagnosticState> with no coupling to the engine type.
 
-static embg::inference::Request build_diagnostic_request(const DiagnosticState& s) {
+static embg::inference::Request build_diagnostic_request(const State& s) {
     std::ostringstream oss;
     oss << "Vehicle VIN: " << s.vehicle_vin << "\n";
     oss << "Fault code: "  << s.anomaly_code << "\n";
@@ -151,81 +84,69 @@ static embg::inference::Request build_diagnostic_request(const DiagnosticState& 
     };
 }
 
-static void apply_inference_response(DiagnosticState& s, const embg::inference::Response& r) {
+static void apply_inference_response(State& s, const embg::inference::Response& r,
+                                     const std::string& engine_name) {
     s.last_confidence   = r.confidence;
-    s.raw_llm_output    = r.text;
-    s.fault_description = tool_check_dtc(s.anomaly_code);  // structured fallback
+    s.fault_description = automotive::tool_check_dtc(s.anomaly_code);
     s.severity          = (s.anomaly_code == "P0300") ? "critical" : "medium";
 
-    std::cout << "  [inference/" << (r.confidence >= 0.85 ? "✓" : "~")
+    std::cout << "  [inference/" << (r.confidence >= 0.85 ? "pass" : "retry")
               << "] conf=" << r.confidence
-              << " engine=" << "stub"  // swap for engine.model_name()
+              << " engine=" << engine_name
               << "\n";
     std::cout << "  [inference] response: " << r.text.substr(0, 100) << "\n";
 }
 
-static void report_fault_node(DiagnosticState& s) {
+static void report_fault_node(State& s) {
     std::ostringstream oss;
-    oss << "\n┌── DIAGNOSTIC REPORT ─────────────────────────────────────┐\n";
-    oss << "│  VIN        : " << s.vehicle_vin        << "\n";
-    oss << "│  DTC        : " << s.anomaly_code       << "\n";
-    oss << "│  Fault      : " << s.fault_description  << "\n";
-    oss << "│  Severity   : " << s.severity           << "\n";
-    oss << "│  Confidence : " << s.last_confidence    << "\n";
-    oss << "│  LLM output : " << s.raw_llm_output.substr(
-                                    0, std::min<std::size_t>(60, s.raw_llm_output.size()))
-                              << "\n";
-    oss << "│  Evidence   : " << s.observations.size() << " tool(s)\n";
-    oss << "└───────────────────────────────────────────────────────────┘\n";
+    oss << "\n+-- DIAGNOSTIC REPORT -------------------------------+\n";
+    oss << "|  VIN        : " << s.vehicle_vin        << "\n";
+    oss << "|  DTC        : " << s.anomaly_code       << "\n";
+    oss << "|  Fault      : " << s.fault_description  << "\n";
+    oss << "|  Severity   : " << s.severity           << "\n";
+    oss << "|  Confidence : " << s.last_confidence    << "\n";
+    oss << "|  Evidence   : " << s.observations.size() << " tool(s)\n";
+    oss << "+----------------------------------------------------+\n";
     s.report = oss.str();
     std::cout << s.report;
 }
 
 // ─── Build the graph ──────────────────────────────────────────────────────────
-//
-// Topology:
-//   agent ──[router]──▶ tool_execute ──▶ run_inference ──[conf_router]
-//     ▲                                                           │
-//     │                                          conf < 0.85      │
-//     └──────────────────────────────────────────────────────────┘
-//                                         conf >= 0.85 ──▶ report_fault ──▶ END
 
-static embg::Graph<DiagnosticState> make_graph(embg::inference::InferenceEngine& engine) {
-    embg::Graph<DiagnosticState> g;
+static embg::Graph<State> make_graph(embg::inference::InferenceEngine& engine) {
+    embg::Graph<State> g;
 
-    // ── Nodes ─────────────────────────────────────────────────────────────────
     g.add_node("agent",         agent_node);
     g.add_node("tool_execute",  tool_execute_node);
 
-    // run_inference — uses the InferenceEngine. embg::inference::make_node()
-    // wraps the engine into a NodeFn<DiagnosticState> with no coupling to the
-    // engine type.
+    // run_inference — uses the InferenceEngine via make_node().
+    // engine is captured by reference (nothrow-movable, required by static mode)
+    // and model_name() is read inside — fixes the hardcoded "stub" issue (4.5).
     g.add_node("run_inference",
-        embg::inference::make_node<DiagnosticState>(
+        embg::inference::make_node<State>(
             engine,
             build_diagnostic_request,
-            apply_inference_response
+            [&engine](State& s, const embg::inference::Response& r) {
+                apply_inference_response(s, r, engine.model_name());
+            }
         ));
 
     g.add_node("report_fault", report_fault_node);
 
-    // ── Edges (declared together so the topology is visible at a glance) ────
     g.add_edge("tool_execute", "run_inference");
     g.add_edge("report_fault", embg::END);
 
-    // ── Routers ──────────────────────────────────────────────────────────────
-    g.add_conditional_edge("agent", [](const DiagnosticState& s) {
+    g.add_conditional_edge("agent", [](const State& s) {
         return (s.next_action == "use_tool") ? "tool_execute" : "report_fault";
     });
 
     g.add_conditional_edge("run_inference",
-        embg::embedded::confidence_router<DiagnosticState>(
+        embg::embedded::confidence_router<State>(
             /*threshold=*/0.85,
             /*above=*/"report_fault",
             /*below=*/"agent"
         ));
 
-    // ── Entry ───────────────────────────────────────────────────────────────
     g.set_entry("agent");
 
     return g;
@@ -234,16 +155,9 @@ static embg::Graph<DiagnosticState> make_graph(embg::inference::InferenceEngine&
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 int main() {
-    std::cout << "=== 06 LLM Inference Node — Automotive Diagnostic ===\n";
+    std::cout << "=== 06 LLM Inference Node -- Automotive Diagnostic ===\n";
 
-    // ── Configure StubEngine ───────────────────────────────────────────────
     // Swap this for LlamaCppEngine when model is available.
-    //
-    // To use llama.cpp:
-    //   #ifdef EMBG_WITH_LLAMACPP
-    //   embg::inference::LlamaCppEngine engine("/path/to/model.gguf");
-    //   #endif
-
     embg::inference::StubEngine engine;
     engine
         .add_response("P0420",
@@ -253,29 +167,24 @@ int main() {
             /*confidence=*/0.91)
         .add_response("P0300",
             "Random cylinder misfire detected. "
-            "Multiple cylinders misfiring — check ignition, fuel injectors. "
+            "Multiple cylinders misfiring -- check ignition, fuel injectors. "
             "Severity: critical. Action: immediate inspection required.",
             /*confidence=*/0.94)
-        .add_response("misfire",
-            "Misfire pattern consistent with ignition coil failure on cylinder 2.",
-            /*confidence=*/0.88)
         .set_fallback("Insufficient data for confident diagnosis.", /*confidence=*/0.45);
 
-    // ── Run scenarios ──────────────────────────────────────────────────────
-
-    std::cout << "\n━━━ P0420 — Catalyst fault ━━━\n";
+    std::cout << "\n--- P0420 -- Catalyst fault ---\n";
     {
         auto graph = make_graph(engine);
-        DiagnosticState s;
+        State s;
         s.anomaly_code = "P0420";
         s.vehicle_vin  = "WBA3A5G59DNP26082";
         graph.run(s, 20);
     }
 
-    std::cout << "\n━━━ P0300 — Critical misfire ━━━\n";
+    std::cout << "\n--- P0300 -- Critical misfire ---\n";
     {
         auto graph = make_graph(engine);
-        DiagnosticState s;
+        State s;
         s.anomaly_code = "P0300";
         s.vehicle_vin  = "WBA3A5G59DNP26082";
         graph.run(s, 20);

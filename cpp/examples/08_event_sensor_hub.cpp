@@ -63,19 +63,20 @@ struct SensorHubState {
 
     // External notification output (consumed by main)
     std::vector<std::string> notifications = {};
+
+    // Per-state RNG + spike counter — reentrant, no global/static state
+    std::mt19937 rng{42};
+    int          reading_count  = 0;
 };
 
 // ─── Simulated sensor ────────────────────────────────────────────────────────
 
-static std::mt19937 rng{42};
-
-static float read_temperature_sensor() {
+static float read_temperature_sensor(SensorHubState& s) {
     // Simulate a temperature sensor with occasional spikes
     std::normal_distribution<float> dist(25.0f, 3.0f);
-    float value = dist(rng);
+    float value = dist(s.rng);
     // Every 4th reading, inject a spike above threshold
-    static int reading = 0;
-    if (++reading % 4 == 0) value += 8.0f;
+    if (++s.reading_count % 4 == 0) value += 8.0f;
     return value;
 }
 
@@ -87,7 +88,7 @@ static float read_temperature_sensor() {
 // tick → read sensor, emit sensor_data
 static void tick_handler(SensorHubState& s, embg::event::EventEmitter& emit) {
     s.tick_count++;
-    s.current_value = read_temperature_sensor();
+    s.current_value = read_temperature_sensor(s);
     s.readings.push_back(s.current_value);
     std::cout << "  [tick " << s.tick_count << "] sensor=" << s.current_value << " °C\n";
     emit.emit("sensor_data", &s.current_value, sizeof(float));

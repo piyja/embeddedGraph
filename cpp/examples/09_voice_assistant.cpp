@@ -59,6 +59,7 @@ struct VoiceState {
 
     // Turn tracking
     int         turn         = 0;
+    int         joke_index   = 0;   // per-state, reentrant (no global static)
 };
 
 static_assert(embg::embedded::ConfidenceState<VoiceState>,
@@ -232,8 +233,7 @@ static void joke_agent(VoiceState& s) {
         "Why did the developer go broke? Because he used up all his cache.",
         "There are 10 types of people: those who understand binary and those who don't.",
     };
-    static int idx = 0;
-    s.response = std::string(jokes[idx++ % 4]);
+    s.response = std::string(jokes[s.joke_index++ % 4]);
     std::cout << "  [AGT]  joke agent activated\n";
 }
 

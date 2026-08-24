@@ -9,14 +9,14 @@
 | Correctness (§1) | 20 | 20 | 0 |
 | API design (§2) | 8 | 8 | 0 |
 | Missing functionality (§3) | 10 | 2 | 8 |
-| Code quality (§4) | 7 | 1 | 6 |
+| Code quality (§4) | 7 | 5 | 2 |
 | Static mode (§5) | 6 | 3 | 3 |
 | HSM (§6) | 6 | 4 | 2 |
 | Events (§7) | 8 | 1 | 7 |
 | Inference (§8) | 9 | 0 | 9 |
-| Examples (§9) | 6 | 0 | 6 |
+| Examples (§9) | 6 | 3 | 3 |
 | Tests and CI (§10) | 5 | 1 (partial) | 4 |
-| **Total** | **85** | **40** | **45** |
+| **Total** | **85** | **47** | **38** |
 
 ## 1. Correctness bugs
 
@@ -75,12 +75,12 @@
 
 | # | Finding | Status |
 |---|---|---|
-| 4.1 | Examples 04, 06, and 07 duplicate tool functions and `DiagnosticState`; no shared `tools.hpp`. | Open |
-| 4.2 | `make_full_graph()` and `make_degraded_graph()` are duplicated between 03 and 04. | Open |
+| 4.1 | Examples 04, 06, and 07 duplicate tool functions and `DiagnosticState`; no shared `tools.hpp`. | **Fixed.** `examples/automotive_tools.hpp` holds `DiagnosticState` + the tool set; 04/06/07 include it instead of redefining. |
+| 4.2 | `make_full_graph()` and `make_degraded_graph()` are duplicated between 03 and 04. | **Fixed.** 03 slimmed to confidence-gated routing only; 04 now owns the `DegradedModeRunner` pattern. |
 | 4.3 | `DefaultConfig` contains constants unused by `std::*` implementations. | Open |
 | 4.4 | `max_tokens + 1024` is unexplained magic padding. | Open |
-| 4.5 | Example 06 hard-codes `"stub"` despite `engine.model_name()`. | Open |
-| 4.6 | Example lambdas use mutable global/static state, making them non-reentrant. | Open |
+| 4.5 | Example 06 hard-codes `"stub"` despite `engine.model_name()`. | **Fixed.** The handler now prints `engine.model_name()`. |
+| 4.6 | Example lambdas use mutable global/static state, making them non-reentrant. | **Fixed.** Per-state RNG/counters in 03, 08, 09 remove the globals. |
 | 4.7 | `Function::operator() const` used `const_cast` rather than `std::function` semantics. | **Fixed** (duplicate of §2.8). |
 
 ## 5. Static allocation: remaining gaps
@@ -110,55 +110,8 @@ The llama.cpp integration remains a skeleton: no model chat template; ignored te
 
 ## 9. Example gaps
 
-Examples 04/06/07 are largely the same agent loop, and 03/04 repeat the degraded-mode pattern. No example covers orthogonal regions, EventGraph+HSM, history, hardware, RTOS, multithreading, subgraphs, heap-free state, llama.cpp, or `with_timeout`; the last is covered only by the focused test. The “voice assistant” is a keyword classifier, the ECU HSM is shallow, and mutable static state makes examples non-reentrant. All remain open except the focused timeout test.
+Examples 04/06/07 were largely the same agent loop, and 03/04 repeated the degraded-mode pattern. **Fixed:** `automotive_tools.hpp` de-duplicates the shared state/tools across 04/06/07; 03 is now a focused confidence-gated-routing example and 04 owns the `DegradedModeRunner`; mutable static state in 03/08/09 is gone. Remaining open coverage gaps: orthogonal regions, EventGraph+HSM, history, hardware, RTOS, multithreading, subgraphs, heap-free state, llama.cpp, and a dedicated `with_timeout` example — `with_timeout` is exercised by `tests/test_with_timeout.cpp` rather than a standalone example. The “voice assistant” is still a keyword classifier and the ECU HSM remains shallow by design.
 
 ## 10. Test and CI gaps
 
 `tests/test_with_timeout.cpp` covers fast work, deadline enforcement, immediate-exception timing, and static-mode post-hoc detection. `tests/test_hsm_and_storage.cpp` adds regression coverage for HSM semantics (external self-transitions, history, ancestor transitions, reentrant entry actions, hierarchy validation) and storage safety (`StaticMap`, `StaticVector`, `StaticString`, `Function` move), plus event-queue recovery — all built and run in both modes via `make test`. The project still lacks CI, static-analysis configuration, coverage measurement, benchmarks, and fuzzing.
-
-## Documentation drift
-
-- README says there are seven examples; there are nine.
-- Its “no `std::string` heap” claim does not hold for user state (§5.1).
-- Two HTML overviews and `knowledge-base.mdx` create three competing sources of truth.
-
-## Market context
-
-| Project | Relevant strengths |
-|---|---|
-| LangGraph (Python) | Durable execution, persistent memory, tracing/evaluation, and deployment infrastructure. |
-| Boost.SML (C++14) | Zero-overhead state machines, no-exception/freestanding compatibility, regions/history/deferred events, MCU testing, CI, benchmarks, and clang-tidy. |
-| Quantum Leaps QP (C/C++) | Active objects, RTOS and bare-metal support, model-based design, live tracing, test tooling, and safety-certified commercial deployments. |
-
-## Bottom line
-
-embeddedGraph is a clean, well-organized **prototype**, not yet production- or embedded-ready. MR #1 fixed the three critical timeout issues. MR #2 fixed all eight API-design findings, including config-aware inference, safer ownership options, testable events, owned router strings, and a no-exceptions/no-RTTI build path. MR #3 closed all 20 correctness findings (§1): storage-container safety, sound `Function` move semantics, exception-safe event dispatch, deadline-honoring `with_timeout`, and UML-correct HSM transitions — each backed by regression tests that pass in default and static modes.
-
-**45 of 85 line-item findings remain open.** The most consequential gaps are remaining HSM semantics (orthogonal regions, pseudostates), the non-production llama.cpp integration, lack of CI/static analysis, and a demo set that reduces to roughly three distinct patterns. Every **✗** item was reproduced against the headers; it is not speculative.
-
-## Remediation notes
-
-### MR #1 — `with_timeout`
-
-- **Root cause:** a `std::async` future blocked during destruction after `wait_for` timed out; the timeout handler could race with the work.
-- **Fix:** run work on a `std::thread` over a copied `shared_ptr<S>` state, wait on an atomic completion flag, detach on timeout, and commit the copy only after a successful join. Worker exceptions take the timeout path.
-- **Static mode:** execute inline, measure with `steady_clock`, and call the fallback after an overrun or exception. It cannot preempt running work.
-- **API change:** forwarding-template parameters prevent intermediate type-erased functions from exceeding static-mode SBO capacity.
-- **Verification:** `tests/test_with_timeout.cpp` checks successful completion, deadline behavior (300 ms work / 50 ms deadline), and exceptions in both modes.
-
-### MR #2 — API design
-
-- **Config awareness:** inference types are templated on `Cfg`, with default aliases for existing callers.
-- **Lifetimes:** `make_node_shared()` and `add_level_shared()` provide default-mode shared ownership; raw-reference paths are documented. `clear_level()` and null checks were added.
-- **Testability and ownership:** `EventEmitter::bind()` is public; `confidence_router` owns config-aware string values. `RouterFnInlineBytes` is 128 bytes to hold its capture.
-- **No-exception builds:** `error.hpp` adds `Error`, `ErrorHandler`, `set_error_handler()`, and `EMBG_ERROR`; throw sites use it. All nine examples build with `-fno-exceptions -fno-rtti -DEMBG_STATIC_ALLOC -DEMBG_NO_EXCEPTIONS`.
-- **Callable semantics:** `Function::operator()` is non-const, `const_cast` is gone, and graph visitation uses mutable references.
-
-### MR #3 — Correctness (§1)
-
-- **Storage safety:** `StaticMap::end()` returns a real past-the-end pointer so range-for is sound; initializer-list overflow raises `CapacityExceeded` via `insert_or_assign`. `StaticVector` bounds-checks `operator[]`/`back()` (`OutOfRange`) and value-initializes `resize()` growth. `StaticString::find` rejects out-of-range `pos`; `substr` clamps against `sz - pos`, killing the `pos + len` overflow.
-- **`Function`:** move construction/assignment route through a type-erased move stub (move-construct, then destroy source) instead of `memcpy`; callables must be nothrow-move-constructible. `reset()` now clears all stub pointers.
-- **Events:** `EventGraph::process` resets the queue via an RAII guard on every exit path, so a throwing handler cannot wedge later cycles.
-- **`with_timeout`:** worker outcome is a three-state atomic (`Pending/Completed/Failed`). Exceptions surface immediately — the caller joins and invokes `on_timeout` without burning the deadline. Default mode static_asserts a captureless `fn`, making detached workers structurally safe from dangling references.
-- **HSM:** `init()` validates dangling parents/initials, name-key mismatches, and parent cycles before entering. Member scratch buffers are gone — transition paths use function-local buffers, so entry actions may re-enter `dispatch()`. Ancestor transitions update `current_` when no entry path runs, while a nested dispatch from an entry action still takes precedence.
-- **Verification:** `make test` builds and runs both test binaries in default and static modes; `make check` confirms all nine examples produce identical output across modes. New regressions cover map iteration/capacity, vector bounds/resize, string find/substr edges, `Function` moves of heap-capturing lambdas, event-queue recovery after a throw, reentrant entry actions, hierarchy validation, ancestor-transition `current_`, and immediate-exception timing (<50 ms with a 100 ms deadline).
