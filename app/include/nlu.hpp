@@ -8,9 +8,12 @@
 // transformer, on-device LLM) can replace the implementation without any
 // change to the dialogue module or the graph wiring.
 
+#include "skills.hpp"
+
 #include <algorithm>
 #include <cctype>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace voice {
@@ -24,9 +27,8 @@ struct NluResult {
 class Nlu {
 public:
     struct Rule {
-        const char* const* keywords;   // null-terminated array
-        std::size_t        count;
-        const char*        intent;
+        std::vector<std::string> keywords;  // owned copies of skill triggers
+        std::string              intent;
     };
 
     explicit Nlu(std::vector<Rule> rules) : rules_(std::move(rules)) {}
@@ -36,8 +38,8 @@ public:
 
         NluResult best;
         for (const auto& rule : rules_) {
-            for (std::size_t i = 0; i < rule.count; ++i) {
-                const std::string kw = to_lower(rule.keywords[i]);
+            for (const auto& keyword : rule.keywords) {
+                const std::string kw = to_lower(keyword);
                 if (kw.empty()) continue;
                 if (contains_word(lower, kw)) {
                     // Longer keyword matches are stronger evidence.
@@ -46,7 +48,7 @@ public:
                     if (conf > best.confidence) {
                         best.intent          = rule.intent;
                         best.confidence      = conf;
-                        best.matched_keyword = rule.keywords[i];
+                        best.matched_keyword = keyword;
                     }
                 }
             }
@@ -86,32 +88,20 @@ private:
     }
 };
 
-// ─── Default demo rule set ─────────────────────────────────────────────────────
+// ─── Rule set derived from the skill registry ─────────────────────────────────
+// One NLU rule per skill with trigger keywords; skills without keywords
+// (e.g. the "unknown" fallback) are skipped — they can never be matched.
 
-inline Nlu make_default_nlu() {
-    static const char* const greeting_kw[] = {
-        "hello", "hi", "hey", "good morning", "good evening", "good afternoon"
-    };
-    static const char* const time_kw[] = {
-        "time", "clock", "hour", "what time"
-    };
-    static const char* const weather_kw[] = {
-        "weather", "rain", "temperature", "forecast", "sunny", "cold", "hot"
-    };
-    static const char* const joke_kw[] = {
-        "joke", "funny", "laugh", "make me laugh"
-    };
-    static const char* const help_kw[] = {
-        "help", "what can you do", "commands", "who are you"
-    };
-
-    return Nlu({
-        { greeting_kw, sizeof(greeting_kw) / sizeof(greeting_kw[0]), "greeting" },
-        { time_kw,     sizeof(time_kw)     / sizeof(time_kw[0]),     "time"     },
-        { weather_kw,  sizeof(weather_kw)  / sizeof(weather_kw[0]),  "weather"  },
-        { joke_kw,     sizeof(joke_kw)     / sizeof(joke_kw[0]),     "joke"     },
-        { help_kw,     sizeof(help_kw)     / sizeof(help_kw[0]),     "help"     },
-    });
+inline Nlu make_default_nlu(const SkillRegistry& skills) {
+    std::vector<Nlu::Rule> rules;
+    for (const auto& skill : skills) {
+        if (skill.keywords.empty()) continue;
+        Nlu::Rule rule;
+        rule.intent = skill.intent;
+        rule.keywords.assign(skill.keywords.begin(), skill.keywords.end());
+        rules.push_back(std::move(rule));
+    }
+    return Nlu(std::move(rules));
 }
 
 } // namespace voice

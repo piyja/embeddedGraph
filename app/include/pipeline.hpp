@@ -5,12 +5,12 @@
 //
 // Topology:
 //
-//   START ──▶ asr ──▶ nlu ──[intent router]──▶ reply_greeting ──▶ tts ──▶ END
-//                                        ├─────────────▶ reply_time ──────┘
-//                                        ├─────────────▶ reply_weather ───┘
-//                                        ├─────────────▶ reply_joke ──────┘
-//                                        ├─────────────▶ reply_help ──────┘
-//                                        └─────────────▶ reply_unknown ───┘
+//   START ──▶ asr ──▶ nlu ──[intent router]──▶ reply_<intent> ──▶ tts ──▶ END
+//
+// The reply nodes are not hand-wired: every skill in the SkillRegistry
+// (skills.hpp) becomes a "reply_<intent>" node converging on tts, and the
+// same skills also feed the NLU keyword rules. Adding a capability is one
+// add() call in make_default_skills().
 //
 // Each stage is a separate module (asr.hpp, nlu.hpp, dialogue.hpp, tts.hpp);
 // this file is pure topology — the graph reads like the block diagram above.
@@ -18,8 +18,8 @@
 #include <embg/graph.hpp>
 
 #include "asr.hpp"
-#include "dialogue.hpp"
 #include "nlu.hpp"
+#include "skills.hpp"
 #include "state.hpp"
 #include "tts.hpp"
 
@@ -27,7 +27,8 @@ namespace voice {
 
 class Pipeline {
 public:
-    Pipeline() : nlu_(make_default_nlu()) {
+    explicit Pipeline(SkillRegistry skills = make_default_skills())
+        : nlu_(make_default_nlu(skills)) {
         using embg::END;
 
         // ── Nodes: one per pipeline stage ──────────────────────────────────
@@ -45,12 +46,10 @@ public:
             s.matched_keyword = r.matched_keyword;
         });
 
-        g_.add_node("reply_greeting", dialogue::greeting);
-        g_.add_node("reply_time",     dialogue::time_query);
-        g_.add_node("reply_weather",  dialogue::weather);
-        g_.add_node("reply_joke",     dialogue::joke);
-        g_.add_node("reply_help",     dialogue::help);
-        g_.add_node("reply_unknown",  dialogue::unknown);
+        // One reply node per registered skill — discovered at init.
+        for (const auto& skill : skills) {
+            g_.add_node("reply_" + skill.intent, skill.handler);
+        }
 
         g_.add_node("tts", [this](VoiceState& s) {
             const TtsResult r = tts_.prepare(s.reply);
@@ -67,10 +66,8 @@ public:
         });
 
         // All reply nodes converge on tts.
-        for (const char* node : { "reply_greeting", "reply_time",
-                                  "reply_weather",  "reply_joke",
-                                  "reply_help",     "reply_unknown" }) {
-            g_.add_edge(node, "tts");
+        for (const auto& skill : skills) {
+            g_.add_edge("reply_" + skill.intent, "tts");
         }
         g_.add_edge("tts", END);
 
