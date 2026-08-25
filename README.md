@@ -151,9 +151,10 @@ embeddedGraph/
 │   │   ├── storage.hpp        # Fixed-capacity primitives (StaticString, StaticMap, Function)
 │   │   └── event.hpp          # Event-driven execution layer (pub/sub, fan-out, event queue)
 │   ├── examples/
+│   │   ├── automotive_tools.hpp          # Shared DiagnosticState + tools (used by 04/06/07)
 │   │   ├── 01_simple_chain.cpp           # Linear pipeline + conditional branch
 │   │   ├── 02_agent_loop.cpp             # ReAct pattern (cycles)
-│   │   ├── 03_embedded_sensor.cpp        # Confidence-gated routing
+│   │   ├── 03_embedded_sensor.cpp        # Confidence-gated routing (+ rule fallback)
 │   │   ├── 04_automotive_diagnostic.cpp  # Full agent: tools + inference + degraded mode
 │   │   ├── 05_hsm_ecu_states.cpp         # HSM managing ECU system states
 │   │   ├── 06_llm_diagnostic.cpp         # LLM inference node (StubEngine)
@@ -173,32 +174,48 @@ embeddedGraph/
 
 ## Examples
 
+Examples 04/06/07 share the same automotive `DiagnosticState` and tool set via
+`examples/automotive_tools.hpp` — each example reuses it rather than redefining it,
+so the only code that differs is the graph topology and the inference wiring.
+
 ### 01 — Simple Chain
-Linear pipeline with conditional branch. The simplest pattern: preprocess → classify → route → respond.
+Linear pipeline + conditional branch: preprocess → classify → route → respond.
 
 ### 02 — Agent Loop (ReAct)
-Cycles — the key thing LangGraph adds over LangChain. Agent decides whether to call a tool or finish, looping until done.
+Cycles. Agent decides whether to call a tool or finish, looping until done.
 
-### 03 — Embedded Sensor
-Confidence-gated routing. Model output above threshold → act on inference. Below threshold → deterministic rule-based fallback. Plus degraded mode (no AI at all).
+### 03 — Embedded Sensor (Confidence-Gated Routing)
+`confidence_router` branches on `last_confidence`: above 0.85 → act on model output;
+below → deterministic rule fallback. No AI dependency on the low-confidence path.
 
 ### 04 — Automotive Diagnostic Agent
-Full agent: tool calling loop + inference + confidence gating + degraded mode. Simulates ECU diagnostic with CAN bus, DTC lookup, live PIDs, actuator tests.
+Full agent loop (tool calling + inference + confidence gate) with a `DegradedModeRunner`
+that falls back to a static DTC lookup when AI is unavailable. This is the canonical
+degraded-mode example.
 
 ### 05 — HSM ECU States
-The two-layer pattern in action. HSM manages OPERATING/DEGRADED/SAFE_HALT. Graph runs the diagnostic agent *within* OPERATING states.
+Two-layer pattern: HSM owns OPERATING/DEGRADED/SAFE_HALT; the graph runs *within*
+OPERATING states.
 
 ### 06 — LLM Inference Node
-Plugs a real `InferenceEngine` (StubEngine by default, LlamaCppEngine optional) into the graph via `make_node()`.
+Plugs an `InferenceEngine` (StubEngine by default, LlamaCppEngine optional) into the
+graph via `make_node()`. Reports the real `engine.model_name()` (not a hard-coded string).
 
 ### 07 — LLM Brain Agent
-LLM decides *which tool to call next*, not the programmer. The model IS the orchestrator. Confidence gate overrides low-confidence "finish" decisions.
+The model IS the orchestrator: it decides which tool to call next and when to finish.
+Low-confidence "finish" decisions are overridden by the confidence gate.
 
 ### 08 — Event-Driven Sensor Hub (non-AI)
-Reactive sensor processing with `EventGraph`: external tick events → sensor read → fan-out to logger + threshold checker → alarm → fan-out to LED + notification. Demonstrates event-driven execution, fan-out, and event generation without any AI/LLM.
+Reactive processing with `EventGraph`: tick → sensor read → fan-out to logger + threshold
+checker → alarm → fan-out to LED + notification. No AI/LLM involved.
 
 ### 09 — Voice Assistant
-Full voice assistant pipeline: ASR (input) → NLU (intent classification + entity extraction) → Arbitration (confidence gate) → Router (conditional edge to matching agent) → Agent (satisfy request) → TTS (output). No AI/LLM — NLU is keyword-based, agents are rule-based. Swap NLU for an LLM node and agents for tool-calling sub-graphs to go production.
+ASR → NLU → arbitration (confidence gate) → router → agent → TTS. Keyword-based NLU and
+rule agents; swap in an LLM node and tool-calling sub-graphs for production.
+
+> **`with_timeout`** is demonstrated by the focused regression test
+> `tests/test_with_timeout.cpp` (fast work, deadline enforcement, immediate-exception
+> timing, and static-mode post-hoc detection) rather than a separate example.
 
 ## Interactive Demo — `app/`
 
@@ -294,17 +311,7 @@ The design keeps the FFI seam open: should a Rust core (Option B) ever be revisi
 
 ```bash
 cd cpp
-make          # builds all 7 examples into build/
-make clean    # removes build/
-```
-
-Requirements: g++ with C++20 support (GCC 10+, Clang 12+).
-
-## Build
-
-```bash
-cd cpp
-make          # builds all 7 examples into build/
+make          # builds all 9 examples into build/
 make clean    # removes build/
 ```
 

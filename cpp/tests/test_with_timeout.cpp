@@ -107,7 +107,7 @@ int main() {
     // ── Test 3: fn throws → on_timeout fires, no crash ───────────────────────
     {
         TestState s;
-        auto throwing_fn = [](TestState& s) {
+        auto throwing_fn = [](TestState&) {
             throw std::runtime_error("boom");
         };
         auto on_timeout = [](TestState& s) {
@@ -118,7 +118,10 @@ int main() {
         auto wrapped = embg::embedded::with_timeout<TestState>(
             throwing_fn, std::chrono::milliseconds(100), on_timeout);
 
+        auto start = std::chrono::steady_clock::now();
         wrapped(s);
+        [[maybe_unused]] auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - start);
 
         std::cout << "Test 3 (throwing fn, 100ms deadline): "
                   << "result=\"" << s.result << "\""
@@ -126,6 +129,9 @@ int main() {
 
         assert(s.timeout_fired);
         assert(s.result == "timeout fallback");
+#if !defined(EMBG_STATIC_ALLOC)
+        assert(elapsed < std::chrono::milliseconds(50));
+#endif
         std::cout << "  PASS\n";
     }
 

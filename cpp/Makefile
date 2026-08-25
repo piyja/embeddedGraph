@@ -18,7 +18,7 @@ ifdef STATIC
   BINDIR   := $(STATIC_BINDIR)
 endif
 
-.PHONY: all clean run check
+.PHONY: all clean run check test
 
 all: $(BINDIR) $(addprefix $(BINDIR)/, $(EXAMPLES))
 
@@ -40,6 +40,7 @@ clean:
 # Build and run both modes, diff outputs — must be identical
 check:
 	@echo "=== Building default mode ==="
+	@mkdir -p /tmp/opencode
 	@make clean > /dev/null 2>&1
 	@make all 2>&1
 	@echo "=== Building static mode ==="
@@ -60,3 +61,13 @@ check:
 	done; \
 	echo "\nResults: $$passed passed, $$failed failed"; \
 	[ $$failed -eq 0 ]
+
+test:
+	$(CXX) $(CXXFLAGS) tests/test_with_timeout.cpp -o /tmp/embg_test_with_timeout
+	/tmp/embg_test_with_timeout
+	$(CXX) $(CXXFLAGS) tests/test_hsm_and_storage.cpp -o /tmp/embg_test_hsm_and_storage
+	/tmp/embg_test_hsm_and_storage
+	$(CXX) $(CXXFLAGS) -DEMBG_STATIC_ALLOC tests/test_with_timeout.cpp -o /tmp/embg_test_with_timeout_static
+	/tmp/embg_test_with_timeout_static
+	$(CXX) $(CXXFLAGS) -DEMBG_STATIC_ALLOC tests/test_hsm_and_storage.cpp -o /tmp/embg_test_hsm_and_storage_static
+	/tmp/embg_test_hsm_and_storage_static

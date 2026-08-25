@@ -29,7 +29,8 @@
 //   "fault_detected"  → OPERATING/ALERT
 //   "fault_cleared"   → OPERATING/NORMAL  (internal: no parent exit/entry)
 //   "ai_unavailable"  → DEGRADED
-//   "ai_restored"     → OPERATING
+//   "diagnostic_retry"→ ALERT (external self-transition: exit + re-enter)
+//   "ai_restored"     → OPERATING/last active substate (shallow history)
 //   "critical_fault"  → SAFE_HALT         (handled at OPERATING level)
 //   "reset"           → OPERATING/NORMAL  (handled at SAFE_HALT level)
 
@@ -157,6 +158,12 @@ static std::string handle_fault_cleared(ECUState& s) {
     return "NORMAL";
 }
 
+static std::string handle_diagnostic_retry(ECUState& s) {
+    std::cout << "  [HSM] retrying diagnostic — restarting ALERT actions\n";
+    s.event_log.push_back("diagnostic_retry");
+    return "ALERT";
+}
+
 // ── DEGRADED (leaf) ──────────────────────────────────────────────────────────
 // AI inference unavailable — rule-based processing only.
 
@@ -250,8 +257,10 @@ static embg::hsm::HSM<ECUState> make_ecu_hsm(embg::Graph<ECUState>& diag_graph) 
             .on_entry = [&diag_graph](ECUState& s) { alert_on_entry(s, diag_graph); },
             .on_exit  = alert_on_exit,
             .handlers = {
-                // Internal transition: fault cleared, stay in OPERATING but go to NORMAL
+                // Return to NORMAL without leaving the OPERATING composite.
                 {"fault_cleared", handle_fault_cleared},
+                // Returning the current state requests an external self-transition.
+                {"diagnostic_retry", handle_diagnostic_retry},
             },
         })
 
@@ -313,9 +322,10 @@ int main() {
     std::cout << "  current state: " << hsm.current() << "\n";
 
     dispatch("fault_detected");   // NORMAL → ALERT (within OPERATING, no parent exit/entry)
-    dispatch("fault_cleared");    // ALERT  → NORMAL
+    dispatch("diagnostic_retry"); // ALERT → ALERT (external: exit + re-enter ALERT actions)
     dispatch("ai_unavailable");   // OPERATING exits, DEGRADED enters
-    dispatch("ai_restored");      // DEGRADED exits, OPERATING/NORMAL enters
+    dispatch("ai_restored");      // DEGRADED exits, OPERATING/ALERT resumes from history
+    dispatch("fault_cleared");    // ALERT → NORMAL
     dispatch("critical_fault");   // OPERATING/NORMAL → SAFE_HALT (handled at OPERATING level)
     dispatch("reset");            // SAFE_HALT → OPERATING/NORMAL
 

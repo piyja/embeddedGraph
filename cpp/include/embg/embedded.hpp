@@ -19,6 +19,7 @@
 #include "graph.hpp"
 #include "error.hpp"
 #include <chrono>
+#include <type_traits>
 
 #if !defined(EMBG_STATIC_ALLOC)
 #include <atomic>
@@ -103,40 +104,45 @@ embg::detail::NodeFn<S, Cfg> with_timeout(
     // This is a fundamental limitation of non-cooperative cancellation in C++.
     // For cooperative cancellation, fn would need to check a cancellation token.
     //
-    // If fn throws, the exception is caught in the worker thread. done is NOT
-    // set, so the timeout path fires on_timeout. The partially-mutated local
-    // copy is discarded (never committed to state).
+    // To make detaching safe, fn must be captureless. Put task input in S and
+    // use on_timeout for caller-thread recovery. A detached closure with a
+    // reference capture could otherwise outlive the referenced object.
+    static_assert(std::is_empty_v<std::decay_t<Fn>>,
+        "embg::embedded::with_timeout requires a captureless fn in default mode; "
+        "put task input in S so a timed-out worker cannot retain dangling references");
     return [fn        = std::forward<Fn>(fn),
             deadline,
             on_timeout = std::forward<OnTimeout>(on_timeout)](S& state) mutable {
  
         auto local = std::make_shared<S>(state);
-        auto done  = std::make_shared<std::atomic<bool>>(false);
- 
-        std::thread worker([local, fn, done]() {
+        enum class Outcome { Pending, Completed, Failed };
+        auto outcome = std::make_shared<std::atomic<Outcome>>(Outcome::Pending);
+
+        std::thread worker([local, fn, outcome]() {
             try {
                 fn(*local);
-                done->store(true, std::memory_order_release);
+                outcome->store(Outcome::Completed, std::memory_order_release);
             } catch (...) {
-                // fn threw — don't set done, let timeout path fire on_timeout.
-                // local is partially mutated but will be discarded (never committed).
+                outcome->store(Outcome::Failed, std::memory_order_release);
             }
         });
  
         const auto start = std::chrono::steady_clock::now();
-        bool completed = false;
- 
+        Outcome result = Outcome::Pending;
+
         while (std::chrono::steady_clock::now() - start < deadline) {
-            if (done->load(std::memory_order_acquire)) {
-                completed = true;
+            result = outcome->load(std::memory_order_acquire);
+            if (result != Outcome::Pending)
                 break;
-            }
             std::this_thread::yield();
         }
- 
-        if (completed) {
+
+        if (result == Outcome::Completed) {
             worker.join();
             state = std::move(*local);
+        } else if (result == Outcome::Failed) {
+            worker.join();
+            on_timeout(state);
         } else {
             // Deadline exceeded — detach worker so we don't block.
             // Worker continues on its shared_ptr copy; no data race on state.
