@@ -71,3 +71,5 @@ test:
 	/tmp/embg_test_with_timeout_static
 	$(CXX) $(CXXFLAGS) -DEMBG_STATIC_ALLOC tests/test_hsm_and_storage.cpp -o /tmp/embg_test_hsm_and_storage_static
 	/tmp/embg_test_hsm_and_storage_static
+	$(CXX) $(CXXFLAGS) -DEMBG_STATIC_ALLOC tests/test_no_heap.cpp -o /tmp/embg_test_no_heap
+	/tmp/embg_test_no_heap
