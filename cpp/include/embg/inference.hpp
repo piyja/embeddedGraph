@@ -114,8 +114,24 @@ private:
 using StubEngine = StubEngineT<>;
 
 // ─── LlamaCppEngine — real on-device inference (config-aware) ──────────────────
+//
+// LlamaCppEngine uses heap allocation internally (std::string, std::vector,
+// and llama.cpp itself allocates). It is NOT compatible with static-allocation
+// mode. When EMBG_STATIC_ALLOC is defined, LlamaCppEngine is disabled and
+// a static_assert fires if you try to use it.
+//
+// For heap-free inference, use StubEngine or implement a custom engine using
+// only StaticString/StaticVector storage.
 
 #ifdef EMBG_WITH_LLAMACPP
+
+#if defined(EMBG_STATIC_ALLOC)
+static_assert(false,
+    "LlamaCppEngine is not compatible with EMBG_STATIC_ALLOC. "
+    "llama.cpp uses heap allocation internally. "
+    "Use StubEngine or a custom heap-free engine for static mode.");
+#endif
+
 #include "llama.h"
 
 template<typename Cfg = embg::Config>
