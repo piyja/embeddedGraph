@@ -36,31 +36,40 @@
 
 #include <embg/graph.hpp>
 #include <embg/hsm.hpp>
+#include "example_types.hpp"
 #include <iostream>
-#include <string>
-#include <vector>
+
+using Str     = embg::examples::Str;
+using LongStr = embg::examples::LongStr<>;
+using StrVec  = embg::examples::StrVec<>;
 
 // ─── Shared state ─────────────────────────────────────────────────────────────
 
 struct ECUState {
-    std::string              dtc_code    = {};
-    std::string              vehicle_vin = "WBA3A5G59DNP26082";
-    std::string              system_mode = {};  // mirrors HSM current state
-    std::vector<std::string> event_log   = {};
-    std::string              last_action = {};
+    Str     dtc_code    = {};
+    Str     vehicle_vin = "WBA3A5G59DNP26082";
+    Str     system_mode = {};
+    std::conditional_t<embg::Config::StaticAlloc,
+        embg::StaticVector<LongStr, 32>,
+        std::vector<std::string>> event_log = {};
+    LongStr last_action = {};
 };
 
 // ─── Diagnostic graph node implementations ───────────────────────────────────
 // Free functions so the graph builder reads as pure topology.
 
 static void read_sensors_node(ECUState& s) {
-    s.last_action = "read sensors — DTC=" + s.dtc_code
-                  + " mode=" + s.system_mode;
+    s.last_action = "read sensors — DTC=";
+    s.last_action += s.dtc_code;
+    s.last_action += " mode=";
+    s.last_action += s.system_mode;
     std::cout << "    [graph/read_sensors] " << s.last_action << "\n";
 }
 
 static void analyze_node(ECUState& s) {
-    s.last_action = "analyzed fault in " + s.system_mode + " mode";
+    s.last_action = "analyzed fault in ";
+    s.last_action += s.system_mode;
+    s.last_action += " mode";
     std::cout << "    [graph/analyze] " << s.last_action << "\n";
 }
 
@@ -107,13 +116,13 @@ static void operating_on_exit(ECUState& s) {
     std::cout << "  [HSM] exited OPERATING\n";
 }
 
-static std::string handle_critical_fault(ECUState& s) {
+static Str handle_critical_fault(ECUState& s) {
     std::cout << "  [HSM] critical fault — escalating to SAFE_HALT\n";
     s.event_log.push_back("critical_fault escalated");
     return "SAFE_HALT";
 }
 
-static std::string handle_ai_unavailable(ECUState&) {
+static Str handle_ai_unavailable(ECUState&) {
     std::cout << "  [HSM] AI unavailable — switching to DEGRADED\n";
     return "DEGRADED";
 }
@@ -132,7 +141,7 @@ static void normal_on_exit(ECUState& s) {
     std::cout << "  [HSM] exited NORMAL\n";
 }
 
-static std::string handle_fault_detected(ECUState& s) {
+static Str handle_fault_detected(ECUState& s) {
     std::cout << "  [HSM] fault detected — transitioning to ALERT\n";
     s.event_log.push_back("fault_detected");
     return "ALERT";
@@ -152,13 +161,13 @@ static void alert_on_exit(ECUState& s) {
     std::cout << "  [HSM] exited ALERT\n";
 }
 
-static std::string handle_fault_cleared(ECUState& s) {
+static Str handle_fault_cleared(ECUState& s) {
     std::cout << "  [HSM] fault cleared — returning to NORMAL\n";
     s.event_log.push_back("fault_cleared");
     return "NORMAL";
 }
 
-static std::string handle_diagnostic_retry(ECUState& s) {
+static Str handle_diagnostic_retry(ECUState& s) {
     std::cout << "  [HSM] retrying diagnostic — restarting ALERT actions\n";
     s.event_log.push_back("diagnostic_retry");
     return "ALERT";
@@ -178,12 +187,12 @@ static void degraded_on_exit(ECUState& s) {
     std::cout << "  [HSM] exited DEGRADED\n";
 }
 
-static std::string handle_ai_restored(ECUState&) {
+static Str handle_ai_restored(ECUState&) {
     std::cout << "  [HSM] AI restored — returning to OPERATING\n";
     return "OPERATING";
 }
 
-static std::string handle_degraded_critical_fault(ECUState&) {
+static Str handle_degraded_critical_fault(ECUState&) {
     return "SAFE_HALT";
 }
 
@@ -203,7 +212,7 @@ static void safe_halt_on_exit(ECUState& s) {
     s.event_log.push_back("← SAFE_HALT");
 }
 
-static std::string handle_reset(ECUState& s) {
+static Str handle_reset(ECUState& s) {
     std::cout << "  [HSM] reset received — returning to OPERATING\n";
     s.dtc_code = {};
     return "OPERATING";

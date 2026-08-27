@@ -27,25 +27,27 @@
 #include <embg/embedded.hpp>
 #include <embg/inference.hpp>
 #include "automotive_tools.hpp"
+#include <cstdio>
 #include <iostream>
-#include <sstream>
-#include <string>
-#include <vector>
 
-using State = automotive::DiagnosticState;
+using State   = automotive::DiagnosticState;
+using Str     = automotive::Str;
+using LongStr = automotive::LongStr;
+using StrVec  = automotive::StrVec;
 
 // ─── Tool sequence (subset — no actuator test needed for inference demo) ─────
 
-static const std::vector<std::string> TOOL_SEQ = {
+static const char* TOOL_SEQ[] = {
     "read_can_bus", "check_dtc", "read_live_pid"
 };
+static constexpr std::size_t TOOL_SEQ_SIZE = sizeof(TOOL_SEQ) / sizeof(TOOL_SEQ[0]);
 
 // ─── Node implementations ─────────────────────────────────────────────────────
 
 static void agent_node(State& s) {
     s.iteration++;
     const auto idx = static_cast<std::size_t>(s.iteration - 1);
-    if (idx < TOOL_SEQ.size()) {
+    if (idx < TOOL_SEQ_SIZE) {
         s.next_action = "use_tool";
         s.tool_name   = TOOL_SEQ[idx];
         std::cout << "  [agent] step=" << s.iteration
@@ -57,35 +59,47 @@ static void agent_node(State& s) {
 }
 
 static void tool_execute_node(State& s) {
-    std::string result = automotive::run_tool(s.tool_name, s.anomaly_code);
-    s.observations.push_back("[" + s.tool_name + "] " + result);
-    std::cout << "  [tool] " << result.substr(0, 80) << "\n";
+    LongStr result = automotive::run_tool(s.tool_name, s.anomaly_code);
+    LongStr obs;
+    obs += "[";
+    obs += s.tool_name.c_str();
+    obs += "] ";
+    obs += result.c_str();
+    s.observations.push_back(obs);
+    std::cout << "  [tool] ";
+    const char* p = result.c_str();
+    for (int i = 0; i < 80 && p[i] != '\0'; ++i) std::cout << p[i];
+    std::cout << "\n";
 }
 
 // ─── Inference: prompt builder + response handler ────────────────────────────
 
 static embg::inference::Request build_diagnostic_request(const State& s) {
-    std::ostringstream oss;
-    oss << "Vehicle VIN: " << s.vehicle_vin << "\n";
-    oss << "Fault code: "  << s.anomaly_code << "\n";
-    oss << "Evidence collected:\n";
-    for (const auto& obs : s.observations)
-        oss << "  - " << obs << "\n";
-    oss << "Based on this evidence, what is the fault and severity?";
+    std::string prompt = "Vehicle VIN: ";
+    prompt += std::string(s.vehicle_vin);
+    prompt += "\nFault code: ";
+    prompt += std::string(s.anomaly_code);
+    prompt += "\nEvidence collected:\n";
+    for (std::size_t i = 0; i < s.observations.size(); ++i) {
+        prompt += "  - ";
+        prompt += std::string(s.observations[i]);
+        prompt += "\n";
+    }
+    prompt += "Based on this evidence, what is the fault and severity?";
 
     return {
         .system_prompt = "You are an automotive ECU diagnostic assistant. "
                          "Respond concisely with: fault description, "
                          "severity (low/medium/high/critical), "
                          "and recommended action.",
-        .user_prompt   = oss.str(),
+        .user_prompt   = prompt.c_str(),
         .max_tokens    = 128,
         .temperature   = 0.1f,
     };
 }
 
 static void apply_inference_response(State& s, const embg::inference::Response& r,
-                                     const std::string& engine_name) {
+                                      const std::string& engine_name) {
     s.last_confidence   = r.confidence;
     s.fault_description = automotive::tool_check_dtc(s.anomaly_code);
     s.severity          = (s.anomaly_code == "P0300") ? "critical" : "medium";
@@ -94,20 +108,27 @@ static void apply_inference_response(State& s, const embg::inference::Response& 
               << "] conf=" << r.confidence
               << " engine=" << engine_name
               << "\n";
-    std::cout << "  [inference] response: " << r.text.substr(0, 100) << "\n";
+    std::cout << "  [inference] response: ";
+    const char* p = r.text.c_str();
+    for (int i = 0; i < 100 && p[i] != '\0'; ++i) std::cout << p[i];
+    std::cout << "\n";
 }
 
 static void report_fault_node(State& s) {
-    std::ostringstream oss;
-    oss << "\n+-- DIAGNOSTIC REPORT -------------------------------+\n";
-    oss << "|  VIN        : " << s.vehicle_vin        << "\n";
-    oss << "|  DTC        : " << s.anomaly_code       << "\n";
-    oss << "|  Fault      : " << s.fault_description  << "\n";
-    oss << "|  Severity   : " << s.severity           << "\n";
-    oss << "|  Confidence : " << s.last_confidence    << "\n";
-    oss << "|  Evidence   : " << s.observations.size() << " tool(s)\n";
-    oss << "+----------------------------------------------------+\n";
-    s.report = oss.str();
+    char buf[512];
+    std::snprintf(buf, sizeof(buf),
+        "\n+-- DIAGNOSTIC REPORT -------------------------------+\n"
+        "|  VIN        : %s\n"
+        "|  DTC        : %s\n"
+        "|  Fault      : %s\n"
+        "|  Severity   : %s\n"
+        "|  Confidence : %.2f\n"
+        "|  Evidence   : %zu tool(s)\n"
+        "+----------------------------------------------------+\n",
+        s.vehicle_vin.c_str(), s.anomaly_code.c_str(),
+        s.fault_description.c_str(), s.severity.c_str(),
+        s.last_confidence, s.observations.size());
+    s.report = buf;
     std::cout << s.report;
 }
 

@@ -16,16 +16,19 @@
 //   respond_*  — formats a category-appropriate response
 
 #include <embg/graph.hpp>
+#include "example_types.hpp"
 #include <algorithm>
 #include <cctype>
 #include <iostream>
-#include <string>
+
+using Str = embg::examples::Str;
+using LongStr = embg::examples::LongStr<>;
 
 struct PipelineState {
-    std::string input    = {};
-    std::string cleaned  = {};
-    std::string category = {};  // "technical" | "general"
-    std::string response = {};
+    LongStr input    = {};
+    LongStr cleaned  = {};
+    Str     category = {};
+    LongStr response = {};
 };
 
 // ─── Node implementations ─────────────────────────────────────────────────────
@@ -43,10 +46,10 @@ static void preprocess_node(PipelineState& s) {
 static void classify_node(PipelineState& s) {
     // Simulates an LLM classification call.
     const bool is_technical =
-        s.cleaned.find("error")   != std::string::npos ||
-        s.cleaned.find("crash")   != std::string::npos ||
-        s.cleaned.find("compile") != std::string::npos ||
-        s.cleaned.find("segfault")!= std::string::npos;
+        s.cleaned.find("error")   != Str::npos ||
+        s.cleaned.find("crash")   != Str::npos ||
+        s.cleaned.find("compile") != Str::npos ||
+        s.cleaned.find("segfault")!= Str::npos;
 
     s.category = is_technical ? "technical" : "general";
 }
@@ -102,7 +105,7 @@ int main() {
     auto graph = make_pipeline_graph();
 
     // ── Run ──────────────────────────────────────────────────────────────────
-    auto run = [&](const std::string& input) {
+    auto run = [&](const char* input) {
         PipelineState state{ .input = input };
         std::cout << "\nInput: \"" << input << "\"\n";
         graph.run(state);

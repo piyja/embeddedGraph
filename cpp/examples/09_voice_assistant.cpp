@@ -29,37 +29,32 @@
 
 #include <embg/graph.hpp>
 #include <embg/embedded.hpp>
+#include "example_types.hpp"
 #include <algorithm>
 #include <chrono>
 #include <cctype>
+#include <cstdio>
 #include <ctime>
 #include <iostream>
-#include <string>
-#include <vector>
 
-// ─── State ───────────────────────────────────────────────────────────────────
+using Str     = embg::examples::Str;
+using LongStr = embg::examples::LongStr<>;
 
 struct VoiceState {
-    // Input (from ASR)
-    std::string asr_text = {};
+    LongStr asr_text = {};
 
-    // NLU output
-    std::string intent       = {};   // greeting|time|weather|music|joke|help|unknown
-    double last_confidence = 0.0;  // 0.0–1.0 (required by ConfidenceState concept)
-    std::string entity       = {};   // extracted slot (e.g. song name, city)
+    Str     intent       = {};
+    double  last_confidence = 0.0;
+    LongStr entity       = {};
 
-    // Arbitration
-    std::string decision     = {};   // "handle" | "clarify"
+    Str     decision     = {};
 
-    // Agent output
-    std::string response     = {};
+    LongStr response     = {};
 
-    // TTS
-    std::string spoken       = {};
+    LongStr spoken       = {};
 
-    // Turn tracking
-    int         turn         = 0;
-    int         joke_index   = 0;   // per-state, reentrant (no global static)
+    int     turn         = 0;
+    int     joke_index   = 0;
 };
 
 static_assert(embg::embedded::ConfidenceState<VoiceState>,
@@ -67,15 +62,15 @@ static_assert(embg::embedded::ConfidenceState<VoiceState>,
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-static std::string to_lower(const std::string& s) {
-    std::string out = s;
+static LongStr to_lower(const LongStr& s) {
+    LongStr out = s;
     std::transform(out.begin(), out.end(), out.begin(),
                    [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     return out;
 }
 
-static bool contains(const std::string& haystack, const std::string& needle) {
-    return haystack.find(needle) != std::string::npos;
+static bool contains(const LongStr& haystack, const char* needle) {
+    return haystack.find(needle) != LongStr::npos;
 }
 
 // ─── NLU: Intent classification + entity extraction ──────────────────────────
@@ -103,9 +98,9 @@ static const IntentRule INTENT_RULES[] = {
 
 static constexpr int NUM_RULES = sizeof(INTENT_RULES) / sizeof(INTENT_RULES[0]);
 
-static void classify_intent(const std::string& text, std::string& intent,
-                             double& last_confidence, std::string& entity) {
-    std::string lower = to_lower(text);
+static void classify_intent(const LongStr& text, Str& intent,
+                             double& last_confidence, LongStr& entity) {
+    LongStr lower = to_lower(text);
 
     for (int i = 0; i < NUM_RULES; ++i) {
         const auto& rule = INTENT_RULES[i];
@@ -114,22 +109,19 @@ static void classify_intent(const std::string& text, std::string& intent,
                 intent          = rule.intent;
                 last_confidence = rule.confidence;
 
-                // Entity extraction — very basic
-                if (std::string(rule.intent) == "music") {
-                    // Extract everything after "play"
+                if (Str(rule.intent) == "music") {
                     auto pos = lower.find("play");
-                    if (pos != std::string::npos) {
-                        auto start = pos + 5; // skip "play "
+                    if (pos != LongStr::npos) {
+                        auto start = pos + 5;
                         while (start < text.size() && std::isspace(text[start])) ++start;
                         entity = text.substr(start);
                     }
                     if (entity.empty()) entity = "some music";
                 }
-                else if (std::string(rule.intent) == "weather") {
-                    // Look for a city name after "in" or "for"
+                else if (Str(rule.intent) == "weather") {
                     auto pos = lower.find(" in ");
-                    if (pos == std::string::npos) pos = lower.find(" for ");
-                    if (pos != std::string::npos) {
+                    if (pos == LongStr::npos) pos = lower.find(" for ");
+                    if (pos != LongStr::npos) {
                         auto start = pos + 4;
                         while (start < text.size() && std::isspace(text[start])) ++start;
                         entity = text.substr(start);
@@ -208,21 +200,25 @@ static void time_agent(VoiceState& s) {
     std::time_t t = std::chrono::system_clock::to_time_t(now);
     char buf[64];
     std::strftime(buf, sizeof(buf), "%I:%M %p", std::localtime(&t));
-    s.response = std::string("The current time is ") + buf + ".";
+    s.response = "The current time is ";
+    s.response += buf;
+    s.response += ".";
     std::cout << "  [AGT]  time agent activated\n";
 }
 
 static void weather_agent(VoiceState& s) {
-    // Simulated weather — in production this would call a weather API.
-    std::string location = s.entity.empty() ? "your location" : s.entity;
-    s.response = "The weather in " + location +
-                 " is 22 degrees Celsius, partly cloudy, with light wind.";
+    LongStr location = s.entity.empty() ? LongStr("your location") : s.entity;
+    s.response = "The weather in ";
+    s.response += location;
+    s.response += " is 22 degrees Celsius, partly cloudy, with light wind.";
     std::cout << "  [AGT]  weather agent activated (location=" << location << ")\n";
 }
 
 static void music_agent(VoiceState& s) {
-    std::string track = s.entity.empty() ? "a random playlist" : s.entity;
-    s.response = "Now playing " + track + ".";
+    LongStr track = s.entity.empty() ? LongStr("a random playlist") : s.entity;
+    s.response = "Now playing ";
+    s.response += track;
+    s.response += ".";
     std::cout << "  [AGT]  music agent activated (track=" << track << ")\n";
 }
 
@@ -248,8 +244,9 @@ static void help_agent(VoiceState& s) {
 // classifier returns "unknown" with confidence ≥ 0.70; in practice the
 // keyword rules assign 0.20 to unknown, so this is a safety net).
 static void fallback_agent(VoiceState& s) {
-    s.response = "I heard you say: \"" + s.asr_text +
-                 "\", but I'm not sure how to help with that.";
+    s.response = "I heard you say: \"";
+    s.response += s.asr_text;
+    s.response += "\", but I'm not sure how to help with that.";
     std::cout << "  [AGT]  fallback agent activated\n";
 }
 
@@ -316,7 +313,7 @@ static embg::Graph<VoiceState> make_voice_assistant() {
     // ── Router: arbitration → {clarify | intent agent} ───────────────────────
     // Low confidence asks for clarification; otherwise dispatch on s.intent,
     // which matches an AGENTS row name.
-    g.add_conditional_edge("arbitration", [](const VoiceState& s) -> std::string {
+    g.add_conditional_edge("arbitration", [](const VoiceState& s) -> Str {
         if (s.decision == "clarify") return "clarify";
         return s.intent;
     });
@@ -353,7 +350,6 @@ int main() {
     for (const char* input : inputs) {
         VoiceState state;
         state.asr_text = input;
-
         std::cout << "━━━ User speaks ━━━\n";
         assistant.run(state, 20);
         std::cout << "\n";

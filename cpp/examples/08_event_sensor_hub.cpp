@@ -38,35 +38,34 @@
 //   event_observer         — fires on every event before handlers run
 
 #include <embg/event.hpp>
+#include "example_types.hpp"
 #include <cmath>
+#include <cstdio>
 #include <iostream>
 #include <random>
-#include <string>
-#include <vector>
 
-// ─── State ───────────────────────────────────────────────────────────────────
+using Str      = embg::examples::Str;
+using LongStr  = embg::examples::LongStr<>;
+using FloatVec = embg::examples::FloatVec<>;
+using StrVec   = embg::examples::StrVec<>;
 
 struct SensorHubState {
-    // Sensor readings
-    int   tick_count      = 0;
-    float current_value   = 0.0f;
-    float threshold       = 30.0f;
+    int       tick_count      = 0;
+    float     current_value   = 0.0f;
+    float     threshold       = 30.0f;
 
-    // Outputs
-    std::string log_line     = {};
-    bool        alarm_active = false;
-    bool        led_on       = false;
-    int         notify_count = 0;
+    LongStr   log_line        = {};
+    bool      alarm_active    = false;
+    bool      led_on          = false;
+    int       notify_count    = 0;
 
-    // History
-    std::vector<float> readings = {};
+    FloatVec  readings        = {};
+    std::conditional_t<embg::Config::StaticAlloc,
+        embg::StaticVector<LongStr, 8>,
+        std::vector<std::string>> notifications = {};
 
-    // External notification output (consumed by main)
-    std::vector<std::string> notifications = {};
-
-    // Per-state RNG + spike counter — reentrant, no global/static state
     std::mt19937 rng{42};
-    int          reading_count  = 0;
+    int          reading_count = 0;
 };
 
 // ─── Simulated sensor ────────────────────────────────────────────────────────
@@ -96,8 +95,9 @@ static void tick_handler(SensorHubState& s, embg::event::EventEmitter& emit) {
 
 // sensor_data → log (fan-out handler 1)
 static void log_reading_handler(SensorHubState& s, embg::event::EventEmitter&) {
-    s.log_line = "tick=" + std::to_string(s.tick_count) +
-                " value=" + std::to_string(s.current_value) + "C";
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), "tick=%d value=%.1fC", s.tick_count, s.current_value);
+    s.log_line = buf;
     std::cout << "  [log] " << s.log_line << "\n";
 }
 
@@ -120,8 +120,9 @@ static void set_led_handler(SensorHubState& s, embg::event::EventEmitter&) {
 // alarm → send notification (fan-out handler 2)
 static void send_notify_handler(SensorHubState& s, embg::event::EventEmitter& emit) {
     s.notify_count++;
-    std::string msg = "ALARM: temp=" + std::to_string(s.current_value) +
-                      " at tick=" + std::to_string(s.tick_count);
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), "ALARM: temp=%.1f at tick=%d", s.current_value, s.tick_count);
+    LongStr msg = buf;
     s.notifications.push_back(msg);
     std::cout << "  [notify] " << msg << "\n";
     emit.emit("notify", msg.c_str(), msg.size());

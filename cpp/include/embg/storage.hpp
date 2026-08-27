@@ -55,6 +55,14 @@ public:
         buf_[i] = '\0';
     }
 
+    template<std::size_t M>
+    StaticString(const StaticString<M>& other) noexcept {
+        const char* s = other.c_str();
+        std::size_t i = 0;
+        for (; i < N && s[i] != '\0'; ++i) buf_[i] = s[i];
+        buf_[i] = '\0';
+    }
+
     operator std::string_view() const noexcept { return {buf_, size()}; }
     operator std::string() const { return {buf_, size()}; }
 
@@ -80,10 +88,46 @@ public:
         const char* p = std::strstr(buf_ + pos, sub);
         return p ? static_cast<std::size_t>(p - buf_) : npos;
     }
+    std::size_t find(const StaticString& sub, std::size_t pos = 0) const noexcept {
+        return find(sub.c_str(), pos);
+    }
     std::size_t find(char c, std::size_t pos = 0) const noexcept {
         for (std::size_t i = pos; i < size(); ++i)
             if (buf_[i] == c) return i;
         return npos;
+    }
+
+    char& operator[](std::size_t i) { return buf_[i]; }
+    const char& operator[](std::size_t i) const { return buf_[i]; }
+
+    char* begin() noexcept { return buf_; }
+    char* end() noexcept { return buf_ + size(); }
+    const char* begin() const noexcept { return buf_; }
+    const char* end() const noexcept { return buf_ + size(); }
+
+    StaticString& operator+=(const StaticString& other) noexcept {
+        return *this += other.buf_;
+    }
+
+    template<std::size_t M>
+    StaticString& operator+=(const StaticString<M>& other) noexcept {
+        return *this += other.c_str();
+    }
+
+    StaticString operator+(const char* s) const noexcept {
+        StaticString out = *this;
+        out += s;
+        return out;
+    }
+    StaticString operator+(char c) const noexcept {
+        StaticString out = *this;
+        out += c;
+        return out;
+    }
+    StaticString operator+(const StaticString& other) const noexcept {
+        StaticString out = *this;
+        out += other;
+        return out;
     }
 
     StaticString substr(std::size_t pos, std::size_t len = npos) const noexcept {
@@ -121,6 +165,13 @@ template<std::size_t N>
 bool operator==(const char* a, const StaticString<N>& b) noexcept { return b == a; }
 template<std::size_t N>
 bool operator==(const std::string& a, const StaticString<N>& b) noexcept { return b == a; }
+
+template<std::size_t N>
+StaticString<N> operator+(const char* a, const StaticString<N>& b) noexcept {
+    StaticString<N> out(a);
+    out += b;
+    return out;
+}
 
 template<std::size_t N>
 std::ostream& operator<<(std::ostream& os, const StaticString<N>& s) {

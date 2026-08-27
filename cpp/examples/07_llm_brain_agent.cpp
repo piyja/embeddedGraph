@@ -19,35 +19,37 @@
 #include <embg/embedded.hpp>
 #include <embg/inference.hpp>
 #include "automotive_tools.hpp"
+#include "example_types.hpp"
+#include <cctype>
+#include <cstdio>
 #include <iostream>
-#include <sstream>
-#include <string>
-#include <unordered_map>
-#include <vector>
+
+using Str     = embg::examples::Str;
+using LongStr = embg::examples::LongStr<>;
+using StrVec  = embg::examples::StrVec<>;
 
 struct AgentState {
-    std::string task         = {};
-    std::string vehicle_vin  = {};
-    std::string anomaly_code = {};   // extracted from task
+    LongStr task         = {};
+    Str     vehicle_vin  = {};
+    Str     anomaly_code = {};
 
-    std::string next_action  = {};   // "use_tool" | "finish"
-    std::string tool_name    = {};
-    std::string llm_reasoning= {};
+    Str     next_action  = {};
+    Str     tool_name    = {};
+    LongStr llm_reasoning= {};
 
-    std::vector<std::string> observations = {};
+    StrVec  observations = {};
 
-    double      last_confidence   = 0.0;
-    std::string final_answer      = {};
+    double  last_confidence = 0.0;
+    LongStr final_answer    = {};
 
-    int  step = 0;
+    int     step = 0;
 };
 
 static_assert(embg::embedded::ConfidenceState<AgentState>);
 
-// Extract a DTC code (Pxxxx) from the natural-language task, if present.
-static std::string extract_dtc(const std::string& task) {
+static Str extract_dtc(const LongStr& task) {
     auto p = task.find("P0");
-    if (p != std::string::npos && p + 4 < task.size()
+    if (p != LongStr::npos && p + 4 < task.size()
         && std::isdigit(static_cast<unsigned char>(task[p + 2]))
         && std::isdigit(static_cast<unsigned char>(task[p + 3]))
         && std::isdigit(static_cast<unsigned char>(task[p + 4]))) {
@@ -59,17 +61,21 @@ static std::string extract_dtc(const std::string& task) {
 // ─── Domain-aware stub engine ─────────────────────────────────────────────────
 // Simulates an LLM that reasons about which tool to call next.
 
-class DiagnosticBrainStub : public embg::inference::InferenceEngine {
+class DiagnosticBrainStub : public embg::inference::InferenceEngineT<> {
 public:
-    embg::inference::Response generate(const embg::inference::Request& req) override {
-        const std::string& prompt = req.user_prompt;
+    using Req = embg::inference::RequestT<>;
+    using Resp = embg::inference::ResponseT<>;
+    using PStr = embg::inference::PromptStringT<>;
 
-        const bool has_dtc      = prompt.find("check_dtc]")         != std::string::npos;
-        const bool has_live_pid = prompt.find("read_live_pid]")      != std::string::npos;
-        const bool has_can      = prompt.find("read_can_bus]")       != std::string::npos;
+    Resp generate(const Req& req) override {
+        const PStr& prompt = req.user_prompt;
 
-        std::string text;
-        double      confidence;
+        const bool has_dtc      = prompt.find("check_dtc]")         != PStr::npos;
+        const bool has_live_pid = prompt.find("read_live_pid]")      != PStr::npos;
+        const bool has_can      = prompt.find("read_can_bus]")       != PStr::npos;
+
+        PStr text;
+        double confidence;
 
         if (!has_dtc) {
             text       = "ACTION: use_tool\n"
@@ -104,23 +110,26 @@ public:
 // ─── Inference: prompt builder + response handler ────────────────────────────
 
 static embg::inference::Request build_reasoning_request(const AgentState& s) {
-    std::ostringstream oss;
-    oss << "Task: " << s.task << "\n\n";
-    oss << "Available tools:\n"
-        << "  check_dtc         -- look up DTC code description\n"
-        << "  read_live_pid     -- read live OBD-II sensor values\n"
-        << "  read_can_bus      -- capture raw CAN bus frames\n"
-        << "  run_actuator_test -- run hardware actuator self-test\n\n";
-    oss << "Observations so far:\n";
+    std::string prompt = "Task: ";
+    prompt += std::string(s.task);
+    prompt += "\n\nAvailable tools:\n"
+        "  check_dtc         -- look up DTC code description\n"
+        "  read_live_pid     -- read live OBD-II sensor values\n"
+        "  read_can_bus      -- capture raw CAN bus frames\n"
+        "  run_actuator_test -- run hardware actuator self-test\n\n"
+        "Observations so far:\n";
     if (s.observations.empty()) {
-        oss << "  (none)\n";
+        prompt += "  (none)\n";
     } else {
-        for (const auto& obs : s.observations)
-            oss << "  " << obs << "\n";
+        for (std::size_t i = 0; i < s.observations.size(); ++i) {
+            prompt += "  ";
+            prompt += std::string(s.observations[i]);
+            prompt += "\n";
+        }
     }
-    oss << "\nDecide the next action. "
-        << "If you have enough evidence, say finish. "
-        << "Otherwise, pick exactly one tool.";
+    prompt += "\nDecide the next action. "
+        "If you have enough evidence, say finish. "
+        "Otherwise, pick exactly one tool.";
 
     return {
         .system_prompt =
@@ -129,19 +138,20 @@ static embg::inference::Request build_reasoning_request(const AgentState& s) {
             "ACTION: use_tool OR finish\n"
             "TOOL: <tool_name>  (omit line if ACTION is finish)\n"
             "REASONING: <one sentence>",
-        .user_prompt   = oss.str(),
+        .user_prompt   = prompt.c_str(),
         .max_tokens    = 80,
         .temperature   = 0.05f,
     };
 }
 
-static std::string extract_field(const std::string& text, const std::string& key) {
-    const std::string marker = key + ": ";
-    auto pos = text.find(marker);
-    if (pos == std::string::npos) return {};
+static LongStr extract_field(const LongStr& text, const char* key) {
+    LongStr marker = key;
+    marker += ": ";
+    auto pos = text.find(marker.c_str());
+    if (pos == LongStr::npos) return {};
     pos += marker.size();
     auto end = text.find('\n', pos);
-    return text.substr(pos, end == std::string::npos ? std::string::npos : end - pos);
+    return text.substr(pos, end == LongStr::npos ? LongStr::npos : end - pos);
 }
 
 static void apply_reasoning_response(AgentState& s, const embg::inference::Response& r) {
@@ -168,8 +178,13 @@ static void apply_reasoning_response(AgentState& s, const embg::inference::Respo
 // ─── Node implementations ─────────────────────────────────────────────────────
 
 static void tool_execute_node(AgentState& s) {
-    std::string result = automotive::run_tool(s.tool_name, s.anomaly_code);
-    s.observations.push_back("[" + s.tool_name + "] " + result);
+    LongStr result = automotive::run_tool(s.tool_name, s.anomaly_code);
+    LongStr obs;
+    obs += "[";
+    obs += s.tool_name.c_str();
+    obs += "] ";
+    obs += result.c_str();
+    s.observations.push_back(obs);
     std::cout << "  [tool/" << s.tool_name << "] " << result << "\n";
 }
 
@@ -210,7 +225,7 @@ static embg::Graph<AgentState> make_graph(embg::inference::InferenceEngine& brai
     g.add_edge("tool_execute", "reason");
     g.add_edge("report_fault", embg::END);
 
-    g.add_conditional_edge("reason", [](const AgentState& s) -> std::string {
+    g.add_conditional_edge("reason", [](const AgentState& s) -> Str {
         if (s.next_action == "use_tool" && !s.tool_name.empty())
             return "tool_execute";
 

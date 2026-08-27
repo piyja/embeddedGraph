@@ -10,13 +10,13 @@
 | API design (§2) | 8 | 8 | 0 |
 | Missing functionality (§3) | 10 | 2 | 8 |
 | Code quality (§4) | 7 | 5 | 2 |
-| Static mode (§5) | 6 | 3 | 3 |
+| Static mode (§5) | 6 | 4 | 2 |
 | HSM (§6) | 6 | 4 | 2 |
 | Events (§7) | 8 | 1 | 7 |
 | Inference (§8) | 9 | 0 | 9 |
 | Examples (§9) | 6 | 3 | 3 |
 | Tests and CI (§10) | 5 | 1 (partial) | 4 |
-| **Total** | **85** | **47** | **38** |
+| **Total** | **85** | **48** | **37** |
 
 ## 1. Correctness bugs
 
@@ -89,7 +89,7 @@ The framework can avoid heap allocation internally, but typical user data cannot
 
 | # | Gap | Status |
 |---|---|---|
-| 5.1 | Examples use `std::string` and `std::vector` state; `STATIC=1` does not change that. | Open |
+| 5.1 | Examples use `std::string` and `std::vector` state; `STATIC=1` does not change that. | **Fixed.** Config-aware type aliases (`Str`, `LongStr`, `StrVec`, `FloatVec`) in `example_types.hpp`; all example state structs use them. `StaticString` enhanced with `begin()`/`end()`, `operator[]`, `operator+`, cross-size conversion. |
 | 5.2 | `make check` tests output equivalence, not heap allocation; there is no `operator new` poison test. | Open |
 | 5.3 | `inference.hpp` used global `Config` rather than graph `Cfg`. | **Fixed** (§2.1). |
 | 5.4 | `LlamaCppEngine` is heap-based and not gated by `StaticAlloc`. | Open |

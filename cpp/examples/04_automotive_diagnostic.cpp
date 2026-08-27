@@ -21,20 +21,19 @@
 #include <embg/graph.hpp>
 #include <embg/embedded.hpp>
 #include "automotive_tools.hpp"
+#include <cstdio>
 #include <iostream>
-#include <sstream>
-#include <string>
-#include <vector>
 
 using State = automotive::DiagnosticState;
+using Str   = automotive::Str;
+using StrVec = automotive::StrVec;
 
 // ─── Tool sequence ───────────────────────────────────────────────────────────
-// Agent works through this fixed sequence until confidence is high enough.
-// A real agent would use LLM reasoning to pick tools adaptively.
 
-static const std::vector<std::string> TOOL_SEQUENCE = {
+static const char* TOOL_SEQUENCE[] = {
     "read_can_bus", "check_dtc", "read_live_pid", "run_actuator_test"
 };
+static constexpr std::size_t TOOL_SEQUENCE_SIZE = sizeof(TOOL_SEQUENCE) / sizeof(TOOL_SEQUENCE[0]);
 
 // ─── Node implementations ─────────────────────────────────────────────────────
 
@@ -45,7 +44,7 @@ static void agent_node(State& s) {
               << "  conf=" << s.last_confidence << "\n";
 
     const auto idx = static_cast<std::size_t>(s.iteration - 1);
-    if (idx < TOOL_SEQUENCE.size()) {
+    if (idx < TOOL_SEQUENCE_SIZE) {
         s.next_action = "use_tool";
         s.tool_name   = TOOL_SEQUENCE[idx];
         std::cout << "  [agent] -> selected tool: " << s.tool_name << "\n";
@@ -56,10 +55,17 @@ static void agent_node(State& s) {
 }
 
 static void tool_execute_node(State& s) {
-    std::string result = automotive::run_tool(s.tool_name, s.anomaly_code);
-    s.observations.push_back("[" + s.tool_name + "] " + result);
-    std::cout << "  [tool_execute] " << s.tool_name
-              << " -> " << result.substr(0, 72) << "\n";
+    automotive::LongStr result = automotive::run_tool(s.tool_name, s.anomaly_code);
+    automotive::LongStr obs;
+    obs += "[";
+    obs += s.tool_name.c_str();
+    obs += "] ";
+    obs += result.c_str();
+    s.observations.push_back(obs);
+    std::cout << "  [tool_execute] " << s.tool_name << " -> ";
+    const char* p = result.c_str();
+    for (int i = 0; i < 72 && p[i] != '\0'; ++i) std::cout << p[i];
+    std::cout << "\n";
 }
 
 static void run_inference_node(State& s) {
@@ -80,17 +86,21 @@ static void run_inference_node(State& s) {
 }
 
 static void report_fault_full_node(State& s) {
-    std::ostringstream oss;
-    oss << "\n+-- DIAGNOSTIC REPORT -------------------------------+\n";
-    oss << "|  VIN        : " << s.vehicle_vin        << "\n";
-    oss << "|  DTC        : " << s.anomaly_code       << "\n";
-    oss << "|  Fault      : " << s.fault_description  << "\n";
-    oss << "|  Severity   : " << s.severity           << "\n";
-    oss << "|  Confidence : " << s.last_confidence    << "\n";
-    oss << "|  Evidence   : " << s.observations.size() << " tool result(s)\n";
-    oss << "|  Mode       : AI-assisted (full capability)\n";
-    oss << "+----------------------------------------------------+\n";
-    s.report = oss.str();
+    char buf[512];
+    std::snprintf(buf, sizeof(buf),
+        "\n+-- DIAGNOSTIC REPORT -------------------------------+\n"
+        "|  VIN        : %s\n"
+        "|  DTC        : %s\n"
+        "|  Fault      : %s\n"
+        "|  Severity   : %s\n"
+        "|  Confidence : %.2f\n"
+        "|  Evidence   : %zu tool result(s)\n"
+        "|  Mode       : AI-assisted (full capability)\n"
+        "+----------------------------------------------------+\n",
+        s.vehicle_vin.c_str(), s.anomaly_code.c_str(),
+        s.fault_description.c_str(), s.severity.c_str(),
+        s.last_confidence, s.observations.size());
+    s.report = buf;
     std::cout << s.report;
 }
 
@@ -102,15 +112,18 @@ static void dtc_lookup_node(State& s) {
 }
 
 static void report_fault_degraded_node(State& s) {
-    std::ostringstream oss;
-    oss << "\n+-- DIAGNOSTIC REPORT (DEGRADED MODE) ---------------+\n";
-    oss << "|  VIN      : " << s.vehicle_vin        << "\n";
-    oss << "|  DTC      : " << s.anomaly_code       << "\n";
-    oss << "|  Fault    : " << s.fault_description  << "\n";
-    oss << "|  Severity : unknown -- AI inference unavailable\n";
-    oss << "|  Mode     : static DTC lookup -- refer to technician\n";
-    oss << "+----------------------------------------------------+\n";
-    s.report = oss.str();
+    char buf[512];
+    std::snprintf(buf, sizeof(buf),
+        "\n+-- DIAGNOSTIC REPORT (DEGRADED MODE) ---------------+\n"
+        "|  VIN      : %s\n"
+        "|  DTC      : %s\n"
+        "|  Fault    : %s\n"
+        "|  Severity : unknown -- AI inference unavailable\n"
+        "|  Mode     : static DTC lookup -- refer to technician\n"
+        "+----------------------------------------------------+\n",
+        s.vehicle_vin.c_str(), s.anomaly_code.c_str(),
+        s.fault_description.c_str());
+    s.report = buf;
     std::cout << s.report;
 }
 
@@ -127,7 +140,7 @@ static embg::Graph<State> make_full_graph() {
     g.add_edge("tool_execute",  "run_inference");
     g.add_edge("report_fault",  embg::END);
 
-    g.add_conditional_edge("agent", [](const State& s) -> std::string {
+    g.add_conditional_edge("agent", [](const State& s) -> Str {
         return (s.next_action == "use_tool") ? "tool_execute" : "report_fault";
     });
 

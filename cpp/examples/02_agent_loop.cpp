@@ -18,28 +18,35 @@
 //   router        — conditional edge: finish → END, otherwise → tool_execute
 
 #include <embg/graph.hpp>
+#include "example_types.hpp"
 #include <iostream>
-#include <string>
-#include <vector>
+
+using Str     = embg::examples::Str;
+using LongStr = embg::examples::LongStr<>;
+using StrVec  = embg::examples::StrVec<>;
 
 struct AgentState {
-    std::string              task         = {};
-    std::string              next_action  = {};  // "use_tool" | "finish"
-    std::string              tool_name    = {};  // which tool to call this step
-    std::vector<std::string> observations = {};  // accumulated tool results
-    std::string              final_answer = {};
-    int                      step         = 0;
+    LongStr task         = {};
+    Str     next_action  = {};
+    Str     tool_name    = {};
+    StrVec  observations = {};
+    LongStr final_answer = {};
+    int     step         = 0;
 };
 
 // ─── Simulated tool registry ──────────────────────────────────────────────────
 // In a real system these would call external APIs.
 
-static std::string call_tool(const std::string& name, const std::string& task) {
+static LongStr call_tool(const Str& name, const LongStr& task) {
     if (name == "search")
-        return "search result: France has ~68M people";
+        return LongStr("search result: France has ~68M people");
     if (name == "calculator")
-        return "calculator result: 68000000^2 = 4.624e+15";
-    return "tool '" + name + "' not found for: " + task;
+        return LongStr("calculator result: 68000000^2 = 4.624e+15");
+    LongStr result = "tool '";
+    result += name;
+    result += "' not found for: ";
+    result += task;
+    return result;
 }
 
 // ─── Node implementations ─────────────────────────────────────────────────────
@@ -61,16 +68,19 @@ static void agent_node(AgentState& s) {
         std::cout << "  [agent] thought: now I can square the number\n";
     } else {
         s.next_action = "finish";
-        s.final_answer = s.observations.empty()
-            ? "No data collected."
-            : "Answer: " + s.observations.back();
+        if (s.observations.empty()) {
+            s.final_answer = "No data collected.";
+        } else {
+            s.final_answer = "Answer: ";
+            s.final_answer += s.observations.back();
+        }
         std::cout << "  [agent] thought: I have enough information to answer\n";
     }
 }
 
 static void tool_execute_node(AgentState& s) {
     std::cout << "  [tool_execute] calling: " << s.tool_name << "\n";
-    std::string result = call_tool(s.tool_name, s.task);
+    LongStr result = call_tool(s.tool_name, s.task);
     s.observations.push_back(result);
     std::cout << "  [tool_execute] got: " << result << "\n";
 }

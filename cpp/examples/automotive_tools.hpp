@@ -7,28 +7,30 @@
 #define EMBG_EXAMPLES_AUTOMOTIVE_TOOLS_HPP
 
 #include <embg/embedded.hpp>
-#include <string>
-#include <unordered_map>
-#include <vector>
+#include "example_types.hpp"
 
 namespace automotive {
+
+using Str     = embg::examples::Str;
+using LongStr = embg::examples::LongStr<>;
+using StrVec  = embg::examples::StrVec<>;
 
 // ─── State ───────────────────────────────────────────────────────────────────
 
 struct DiagnosticState {
-    std::string anomaly_code      = {};
-    std::string vehicle_vin       = {};
+    Str     anomaly_code      = {};
+    Str     vehicle_vin       = {};
 
-    std::string next_action       = {};
-    std::string tool_name         = {};
-    int         iteration         = 0;
+    Str     next_action       = {};
+    Str     tool_name         = {};
+    int     iteration         = 0;
 
-    std::vector<std::string> observations = {};
+    StrVec  observations      = {};
 
-    double      last_confidence   = 0.0;
-    std::string fault_description = {};
-    std::string severity          = {};
-    std::string report            = {};
+    double  last_confidence   = 0.0;
+    LongStr fault_description = {};
+    Str     severity          = {};
+    LongStr report            = {};
 };
 
 static_assert(embg::embedded::ConfidenceState<DiagnosticState>,
@@ -36,48 +38,74 @@ static_assert(embg::embedded::ConfidenceState<DiagnosticState>,
 
 // ─── Tool functions ──────────────────────────────────────────────────────────
 
-inline std::string tool_read_can_bus(const std::string& code) {
-    return "CAN O2_S1=0.991V rich excursion code=" + code
-         + " ECT=110C TPS=47%";
+inline LongStr tool_read_can_bus(const Str& code) {
+    LongStr result = "CAN O2_S1=0.991V rich excursion code=";
+    result += code.c_str();
+    result += " ECT=110C TPS=47%";
+    return result;
 }
 
-inline std::string tool_check_dtc(const std::string& code) {
-    static const std::unordered_map<std::string, std::string> db = {
+inline LongStr tool_check_dtc(const Str& code) {
+    struct DtcEntry { const char* code; const char* desc; };
+    static const DtcEntry db[] = {
         {"P0420", "Catalyst System Efficiency Below Threshold (Bank 1)"},
         {"P0171", "System Too Lean (Bank 1)"},
         {"P0300", "Random/Multiple Cylinder Misfire Detected"},
         {"P0455", "EVAP System Large Leak Detected"},
     };
-    auto it = db.find(code);
-    return "DTC " + code + ": " + (it != db.end() ? it->second : "Unknown");
+    for (const auto& entry : db) {
+        if (code == entry.code) {
+            LongStr result = "DTC ";
+            result += code.c_str();
+            result += ": ";
+            result += entry.desc;
+            return result;
+        }
+    }
+    LongStr result = "DTC ";
+    result += code.c_str();
+    result += ": Unknown";
+    return result;
 }
 
-inline std::string tool_read_live_pid(const std::string&) {
+inline LongStr tool_read_live_pid(const Str&) {
     return "FuelTrim ST=-3.9% LT=-6.3% O2_S2=0.712V (post-cat low) RPM=820";
 }
 
-inline std::string tool_run_actuator_test(const std::string&) {
+inline LongStr tool_run_actuator_test(const Str&) {
     return "EGR OK | Post-cat O2 delta=0.041V (threshold 0.100V) catalyst degraded";
 }
 
 // ─── Tool registry ───────────────────────────────────────────────────────────
 
-using ToolFn = std::string(*)(const std::string&);
+using ToolFn = LongStr(*)(const Str&);
 
-inline const std::unordered_map<std::string, ToolFn>& tool_registry() {
-    static const std::unordered_map<std::string, ToolFn> reg = {
+struct ToolEntry {
+    const char* name;
+    ToolFn      fn;
+};
+
+inline const ToolEntry* tool_registry(std::size_t& count) {
+    static const ToolEntry reg[] = {
         {"read_can_bus",      tool_read_can_bus},
         {"check_dtc",         tool_check_dtc},
         {"read_live_pid",     tool_read_live_pid},
         {"run_actuator_test", tool_run_actuator_test},
     };
+    count = sizeof(reg) / sizeof(reg[0]);
     return reg;
 }
 
-inline std::string run_tool(const std::string& name, const std::string& code) {
-    const auto& reg = tool_registry();
-    auto it = reg.find(name);
-    return (it != reg.end()) ? it->second(code) : "[tool not found: " + name + "]";
+inline LongStr run_tool(const Str& name, const Str& code) {
+    std::size_t count = 0;
+    const auto* reg = tool_registry(count);
+    for (std::size_t i = 0; i < count; ++i) {
+        if (name == reg[i].name) return reg[i].fn(code);
+    }
+    LongStr result = "[tool not found: ";
+    result += name.c_str();
+    result += "]";
+    return result;
 }
 
 } // namespace automotive

@@ -14,21 +14,23 @@
 
 #include <embg/graph.hpp>
 #include <embg/embedded.hpp>
+#include "example_types.hpp"
 #include <cmath>
+#include <cstdio>
 #include <iostream>
 #include <random>
-#include <string>
 
-// ─── State ───────────────────────────────────────────────────────────────────
+using Str     = embg::examples::Str;
+using LongStr = embg::examples::LongStr<>;
 
 struct SensorState {
     float       raw_value         = 0.0f;
     float       processed_value   = 0.0f;
-    double      last_confidence   = 0.0;   // required by ConfidenceState concept
-    std::string classification;            // "normal" | "elevated" | "critical"
-    std::string action_taken;
-    std::string log_entry;
-    std::mt19937 rng{42};                  // per-state RNG — reentrant, no global state
+    double      last_confidence   = 0.0;
+    Str         classification;
+    LongStr     action_taken;
+    LongStr     log_entry;
+    std::mt19937 rng{42};
 };
 
 static_assert(embg::embedded::ConfidenceState<SensorState>,
@@ -42,7 +44,7 @@ static float read_temperature(std::mt19937& rng) {
 }
 
 // Rule-based classification — always deterministic, no model required.
-static std::string classify_by_rule(float value) {
+static Str classify_by_rule(float value) {
     if (value > 32.0f) return "critical";
     if (value > 28.0f) return "elevated";
     return "normal";
@@ -68,17 +70,21 @@ static void run_inference_node(SensorState& s) {
 }
 
 static void act_on_inference_node(SensorState& s) {
-    s.action_taken = "model-driven -> " + s.classification;
-    s.log_entry    = "conf=" + std::to_string(s.last_confidence)
-                   + " >= threshold -- acting on model output";
+    s.action_taken = "model-driven -> ";
+    s.action_taken += s.classification;
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), "conf=%.2f >= threshold -- acting on model output", s.last_confidence);
+    s.log_entry = buf;
     std::cout << "  [act_on_inference] " << s.action_taken << "\n";
 }
 
 static void rule_based_node(SensorState& s) {
     s.classification = classify_by_rule(s.raw_value);
-    s.action_taken   = "rule-based -> " + s.classification;
-    s.log_entry      = "conf=" + std::to_string(s.last_confidence)
-                     + " < threshold -- deterministic fallback used";
+    s.action_taken = "rule-based -> ";
+    s.action_taken += s.classification;
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), "conf=%.2f < threshold -- deterministic fallback used", s.last_confidence);
+    s.log_entry = buf;
     std::cout << "  [rule_based]    " << s.action_taken << "\n";
 }
 
